@@ -86,6 +86,11 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
   const [showNoteDialog, setShowNoteDialog] = useState(false);
   const [showTagDialog, setShowTagDialog] = useState(false);
 
+  // Sync highlights with article prop
+  useEffect(() => {
+    setHighlights(article.highlights || []);
+  }, [article.highlights]);
+
   const applyHighlights = useCallback(() => {
     if (!contentRef.current) return;
 

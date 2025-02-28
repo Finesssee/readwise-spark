@@ -1,7 +1,9 @@
-
 import { Article } from "../lib/types";
 
-export const articles: Article[] = [
+const STORAGE_KEY = 'readwise_articles';
+
+// Initial mock data
+const initialArticles: Article[] = [
   {
     id: "1",
     title: "The Art of Mindful Reading",
@@ -539,6 +541,32 @@ export const articles: Article[] = [
   }
 ];
 
+// Load articles from localStorage or use initial data
+let articles: Article[] = (() => {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored) {
+    return JSON.parse(stored);
+  }
+  // If no stored data, save initial data and return it
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(initialArticles));
+  return initialArticles;
+})();
+
 export const getArticleById = (id: string): Article | undefined => {
   return articles.find(article => article.id === id);
 };
+
+export const updateArticle = (updatedArticle: Article): void => {
+  const index = articles.findIndex(article => article.id === updatedArticle.id);
+  if (index !== -1) {
+    articles = [
+      ...articles.slice(0, index),
+      updatedArticle,
+      ...articles.slice(index + 1)
+    ];
+    // Persist to localStorage
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(articles));
+  }
+};
+
+export { articles };

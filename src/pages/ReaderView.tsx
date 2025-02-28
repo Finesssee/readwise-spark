@@ -1,7 +1,6 @@
-
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getArticleById } from '@/utils/mockData';
+import { getArticleById, updateArticle } from '@/utils/mockData';
 import { Article } from '@/lib/types';
 import Reader from '@/components/Reader';
 import { Loader } from 'lucide-react';
@@ -12,30 +11,30 @@ const ReaderView = () => {
   const [article, setArticle] = useState<Article | null>(null);
   const [loading, setLoading] = useState(true);
   
-  useEffect(() => {
+  const loadArticle = () => {
     if (!id) {
       navigate('/');
       return;
     }
     
+    const foundArticle = getArticleById(id);
+    if (foundArticle) {
+      setArticle(foundArticle);
+    } else {
+      navigate('/');
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
     // Simulate loading from API
-    const timer = setTimeout(() => {
-      const foundArticle = getArticleById(id);
-      if (foundArticle) {
-        setArticle(foundArticle);
-      } else {
-        navigate('/');
-      }
-      setLoading(false);
-    }, 500);
-    
+    const timer = setTimeout(loadArticle, 500);
     return () => clearTimeout(timer);
   }, [id, navigate]);
   
   const handleUpdateArticle = (updatedArticle: Article) => {
+    updateArticle(updatedArticle);
     setArticle(updatedArticle);
-    // In a real application, this would save to the backend
-    console.log('Article updated:', updatedArticle);
   };
   
   if (loading) {
