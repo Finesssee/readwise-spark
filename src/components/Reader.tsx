@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Article, Highlight } from '@/lib/types';
 import { ArrowLeft, Bookmark, Share2, MoreHorizontal, Clock, X, Tag, Download, MessageSquare } from 'lucide-react';
@@ -108,15 +107,71 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
       }
     }
 
-    // Apply new highlights
-    highlights.forEach((highlight) => {
-      const content = contentRef.current?.innerHTML || '';
-      const highlightedContent = content.replace(
-        highlight.text,
-        `<span class="highlight highlight-${highlight.color}" data-highlight-id="${highlight.id}">${highlight.text}</span>`
-      );
-      if (contentRef.current) {
-        contentRef.current.innerHTML = highlightedContent;
+    // Create a TreeWalker to iterate through text nodes
+    const walker = document.createTreeWalker(
+      contentRef.current,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode: (node) => {
+          // Skip text nodes that are already inside highlights
+          if (node.parentElement?.closest('.highlight')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      }
+    );
+
+    const nodesToHighlight: { node: Node; highlight: Highlight; startIndex: number }[] = [];
+    let node: Node | null;
+
+    // Find all text nodes that contain highlight text
+    while ((node = walker.nextNode())) {
+      const nodeText = node.textContent || '';
+      
+      highlights.forEach(highlight => {
+        let index = nodeText.indexOf(highlight.text);
+        while (index !== -1) {
+          nodesToHighlight.push({ 
+            node, 
+            highlight,
+            startIndex: index
+          });
+          index = nodeText.indexOf(highlight.text, index + 1);
+        }
+      });
+    }
+
+    // Sort highlights by their position in reverse order
+    nodesToHighlight.sort((a, b) => {
+      if (a.node !== b.node) {
+        return 0; // Different nodes, maintain relative order
+      }
+      return b.startIndex - a.startIndex; // Same node, apply from end to start
+    });
+
+    // Apply highlights
+    nodesToHighlight.forEach(({ node, highlight, startIndex }) => {
+      try {
+        const range = document.createRange();
+        range.setStart(node, startIndex);
+        range.setEnd(node, startIndex + highlight.text.length);
+
+        const span = document.createElement('span');
+        span.className = `highlight highlight-${highlight.color}`;
+        span.dataset.highlightId = highlight.id;
+        
+        // Preserve any existing inline styles or classes from parent elements
+        const parentStyles = Array.from(node.parentElement?.classList || [])
+          .filter(className => !className.includes('highlight'))
+          .join(' ');
+        if (parentStyles) {
+          span.className += ` ${parentStyles}`;
+        }
+
+        range.surroundContents(span);
+      } catch (error) {
+        console.error('Failed to apply highlight:', error);
       }
     });
   };

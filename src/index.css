@@ -1,4 +1,3 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -158,80 +157,81 @@
     text-wrap: balance;
   }
 
-  .highlight {
-    @apply relative cursor-pointer inline transition-colors duration-200;
+  /* Updated highlight styles with higher specificity */
+  .prose .highlight {
+    @apply relative cursor-pointer inline transition-colors duration-200 !important;
   }
 
-  .highlight::after {
+  .prose .highlight::after {
     content: '';
-    @apply absolute inset-0 opacity-30 transition-opacity duration-200;
+    @apply absolute inset-0 opacity-30 transition-opacity duration-200 !important;
   }
 
-  .highlight:hover::after {
-    @apply opacity-50;
+  .prose .highlight:hover::after {
+    @apply opacity-50 !important;
   }
 
-  .highlight-yellow {
-    @apply bg-yellow-100 dark:bg-yellow-500/20;
+  .prose .highlight-yellow {
+    @apply bg-yellow-100 dark:bg-yellow-500/20 !important;
   }
 
-  .highlight-yellow::after {
-    @apply bg-yellow-200 dark:bg-yellow-500/30;
+  .prose .highlight-yellow::after {
+    @apply bg-yellow-200 dark:bg-yellow-500/30 !important;
   }
 
-  .highlight-blue {
-    @apply bg-blue-100 dark:bg-blue-500/20;
+  .prose .highlight-blue {
+    @apply bg-blue-100 dark:bg-blue-500/20 !important;
   }
 
-  .highlight-blue::after {
-    @apply bg-blue-200 dark:bg-blue-500/30;
+  .prose .highlight-blue::after {
+    @apply bg-blue-200 dark:bg-blue-500/30 !important;
   }
 
-  .highlight-green {
-    @apply bg-green-100 dark:bg-green-500/20;
+  .prose .highlight-green {
+    @apply bg-green-100 dark:bg-green-500/20 !important;
   }
 
-  .highlight-green::after {
-    @apply bg-green-200 dark:bg-green-500/30;
+  .prose .highlight-green::after {
+    @apply bg-green-200 dark:bg-green-500/30 !important;
   }
 
-  .highlight-pink {
-    @apply bg-pink-100 dark:bg-pink-500/20;
+  .prose .highlight-pink {
+    @apply bg-pink-100 dark:bg-pink-500/20 !important;
   }
 
-  .highlight-pink::after {
-    @apply bg-pink-200 dark:bg-pink-500/30;
+  .prose .highlight-pink::after {
+    @apply bg-pink-200 dark:bg-pink-500/30 !important;
   }
 
-  .highlight-purple {
-    @apply bg-purple-100 dark:bg-purple-500/20;
+  .prose .highlight-purple {
+    @apply bg-purple-100 dark:bg-purple-500/20 !important;
   }
 
-  .highlight-purple::after {
-    @apply bg-purple-200 dark:bg-purple-500/30;
+  .prose .highlight-purple::after {
+    @apply bg-purple-200 dark:bg-purple-500/30 !important;
   }
 
-  .highlight-orange {
-    @apply bg-orange-100 dark:bg-orange-500/20;
+  .prose .highlight-orange {
+    @apply bg-orange-100 dark:bg-orange-500/20 !important;
   }
 
-  .highlight-orange::after {
-    @apply bg-orange-200 dark:bg-orange-500/30;
+  .prose .highlight-orange::after {
+    @apply bg-orange-200 dark:bg-orange-500/30 !important;
   }
 
-  .highlight-red {
-    @apply bg-red-100 dark:bg-red-500/20;
+  .prose .highlight-red {
+    @apply bg-red-100 dark:bg-red-500/20 !important;
   }
 
-  .highlight-red::after {
-    @apply bg-red-200 dark:bg-red-500/30;
+  .prose .highlight-red::after {
+    @apply bg-red-200 dark:bg-red-500/30 !important;
   }
 
-  .highlight-teal {
-    @apply bg-teal-100 dark:bg-teal-500/20;
+  .prose .highlight-teal {
+    @apply bg-teal-100 dark:bg-teal-500/20 !important;
   }
 
-  .highlight-teal::after {
-    @apply bg-teal-200 dark:bg-teal-500/30;
+  .prose .highlight-teal::after {
+    @apply bg-teal-200 dark:bg-teal-500/30 !important;
   }
 }
