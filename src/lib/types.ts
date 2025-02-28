@@ -1,4 +1,3 @@
-
 export interface Article {
   id: string;
   title: string;
@@ -14,6 +13,8 @@ export interface Article {
   read: boolean;
   highlights: Highlight[];
   tags?: string[];
+  createdAt: string;
+  readAt?: string;
 }
 
 export interface Highlight {

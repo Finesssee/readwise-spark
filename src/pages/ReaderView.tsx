@@ -30,7 +30,7 @@ const ReaderView = () => {
     // Simulate loading from API
     const timer = setTimeout(loadArticle, 500);
     return () => clearTimeout(timer);
-  }, [id, navigate]);
+  }, [id, navigate, loadArticle]);
   
   const handleUpdateArticle = (updatedArticle: Article) => {
     updateArticle(updatedArticle);

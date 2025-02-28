@@ -1,14 +1,20 @@
-
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Search, BookOpen, Plus, Settings, Menu, X } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import SearchDialog from '@/components/search/SearchDialog';
+import { useSearchHotkey } from '@/hooks/use-search-hotkey';
 
 const Header = () => {
   const isMobile = useIsMobile();
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   
+  // Add keyboard shortcut
+  useSearchHotkey(() => setSearchOpen(true));
+
   return (
     <header className="sticky top-0 z-50 glass backdrop-blur-md border-b">
       <div className="container flex items-center justify-between h-16 px-4 md:px-6 mx-auto">
@@ -19,25 +25,20 @@ const Header = () => {
           </Link>
         </div>
         
-        {!isMobile && (
-          <div className="flex-1 max-w-xl px-4">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <input
-                type="search"
-                placeholder="Search articles, highlights and notes..."
-                className="w-full bg-background/50 border border-border rounded-full h-9 pl-9 pr-4 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
-          </div>
-        )}
-        
         <div className="flex items-center gap-2">
           {!isMobile ? (
             <>
-              <button className="p-2 rounded-full hover:bg-secondary transition-colors duration-200">
-                <Plus className="h-5 w-5" />
-              </button>
+              <Button
+                variant="outline"
+                className="relative h-9 w-9 p-0 xl:h-10 xl:w-60 xl:justify-start xl:px-3 xl:py-2"
+                onClick={() => setSearchOpen(true)}
+              >
+                <Search className="h-4 w-4 xl:mr-2" />
+                <span className="hidden xl:inline-flex">Search articles...</span>
+                <kbd className="pointer-events-none absolute right-1.5 top-2 hidden h-6 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 xl:flex">
+                  <span className="text-xs">⌘</span>K
+                </kbd>
+              </Button>
               <button className="p-2 rounded-full hover:bg-secondary transition-colors duration-200">
                 <Settings className="h-5 w-5" />
               </button>
@@ -59,14 +60,6 @@ const Header = () => {
           "absolute top-16 left-0 right-0 glass z-50 border-b animate-fadeIn",
         )}>
           <div className="container px-4 py-4 mx-auto space-y-4">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <input
-                type="search"
-                placeholder="Search..."
-                className="w-full bg-background/50 border border-border rounded-full h-9 pl-9 pr-4 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
             <nav className="space-y-2">
               <Link to="/" className="flex items-center p-2 hover:bg-secondary rounded-md transition-colors duration-200">
                 <BookOpen className="w-5 h-5 mr-3" />
@@ -84,6 +77,11 @@ const Header = () => {
           </div>
         </div>
       )}
+
+      <SearchDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+      />
     </header>
   );
 };

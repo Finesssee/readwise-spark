@@ -1,14 +1,14 @@
-
 import React, { useState } from 'react';
 import Header from '@/components/Header';
 import ArticleCard from '@/components/ArticleCard';
-import { articles } from '@/utils/mockData';
+import { getArticles } from '@/utils/mockData';
 import { ArticleView } from '@/lib/types';
 import { LayoutGrid, List, Filter, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const Index = () => {
   const [view, setView] = useState<ArticleView>('grid');
+  const articles = getArticles();
   
   return (
     <div className="min-h-screen bg-background flex flex-col">
