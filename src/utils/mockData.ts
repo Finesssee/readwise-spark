@@ -13,8 +13,8 @@ let articles: Article[] = (() => {
   }
 
   return [
-    {
-      id: "1",
+  {
+    id: "1",
       title: "The Future of AI",
       content: "Artificial Intelligence is rapidly evolving and transforming various industries. From healthcare to finance, AI is making significant impacts on how we work and live.",
       url: "https://example.com/ai-future",
@@ -22,29 +22,29 @@ let articles: Article[] = (() => {
       author: "John Doe",
       imageUrl: "https://picsum.photos/800/400",
       readingTime: 5,
-      saved: true,
+    saved: true,
       createdAt: "2024-03-15T10:00:00Z",
-      highlights: [
-        {
-          id: "h1",
-          articleId: "1",
+    highlights: [
+      {
+        id: "h1",
+        articleId: "1",
           text: "AI is rapidly evolving and transforming various industries",
-          color: "yellow",
+        color: "yellow",
           createdAt: "2024-03-15T10:30:00Z",
-        },
-        {
-          id: "h2",
-          articleId: "1",
+      },
+      {
+        id: "h2",
+        articleId: "1",
           text: "From healthcare to finance, AI is making significant impacts",
-          color: "blue",
+        color: "blue",
           note: "Important applications of AI",
           createdAt: "2024-03-15T10:35:00Z",
-        }
-      ],
+      }
+    ],
       tags: ["AI", "technology", "future"],
-    },
-    {
-      id: "2",
+  },
+  {
+    id: "2",
       title: "Understanding TypeScript",
       content: "TypeScript adds static typing to JavaScript, making it easier to build and maintain large-scale applications. Learn about interfaces, generics, and more.",
       url: "https://example.com/typescript-guide",
@@ -52,15 +52,15 @@ let articles: Article[] = (() => {
       author: "Jane Smith",
       imageUrl: "https://picsum.photos/800/400",
       readingTime: 8,
-      saved: true,
+    saved: true,
       createdAt: "2024-03-14T15:00:00Z",
       readAt: "2024-03-14T16:00:00Z",
-      highlights: [
-        {
-          id: "h3",
+    highlights: [
+      {
+        id: "h3",
           articleId: "2",
           text: "TypeScript adds static typing to JavaScript",
-          color: "green",
+        color: "green",
           createdAt: "2024-03-14T15:30:00Z",
         },
         {
@@ -83,14 +83,14 @@ let articles: Article[] = (() => {
       author: "Sarah Johnson",
       imageUrl: "https://picsum.photos/800/400",
       readingTime: 10,
-      saved: false,
+    saved: false,
       createdAt: "2024-03-13T09:00:00Z",
-      highlights: [
-        {
+    highlights: [
+      {
           id: "h5",
           articleId: "3",
           text: "Explore modern React patterns and best practices",
-          color: "pink",
+        color: "pink",
           createdAt: "2024-03-13T10:00:00Z",
         }
       ],

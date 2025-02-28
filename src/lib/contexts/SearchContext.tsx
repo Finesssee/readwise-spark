@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, ReactNode } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { Article } from '@/lib/types';
 import { searchArticles } from '@/utils/mockData';
 import { SearchContextType, SearchState, SearchAction, SearchFilters } from '@/lib/types/search';
@@ -46,15 +46,13 @@ interface SearchProviderProps {
 
 export const SearchProvider = ({ children }: SearchProviderProps) => {
   const [state, dispatch] = useReducer(searchReducer, initialState);
+  const isInitialMount = useRef(true);
+  const previousFilters = useRef(state.filters);
 
-  const search = async (query: string, filters?: SearchFilters) => {
+  const search = useCallback(async (query: string, filters?: SearchFilters) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
-      dispatch({ type: 'SET_QUERY', payload: query });
-      if (filters) {
-        dispatch({ type: 'SET_FILTERS', payload: filters });
-      }
-
+      
       const results = searchArticles(query, filters || state.filters);
       
       dispatch({ type: 'SET_RESULTS', payload: results });
@@ -64,10 +62,36 @@ export const SearchProvider = ({ children }: SearchProviderProps) => {
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
+  }, [state.filters]);
+
+  // Handle filter changes
+  useEffect(() => {
+    // Skip the first render
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    // Check if filters have actually changed
+    if (JSON.stringify(previousFilters.current) === JSON.stringify(state.filters)) {
+      return;
+    }
+
+    // Update previous filters
+    previousFilters.current = state.filters;
+
+    // Perform the search
+    search(state.query, state.filters);
+  }, [state.filters, state.query, search]);
+
+  const value = {
+    state,
+    dispatch,
+    search
   };
 
   return (
-    <SearchContext.Provider value={{ state, dispatch, search }}>
+    <SearchContext.Provider value={value}>
       {children}
     </SearchContext.Provider>
   );
