@@ -1,4 +1,3 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -159,22 +158,47 @@
   }
 
   .highlight {
-    @apply relative cursor-pointer inline;
+    @apply relative cursor-pointer inline transition-colors duration-200;
+  }
+
+  .highlight::after {
+    content: '';
+    @apply absolute inset-0 opacity-30 transition-opacity duration-200;
+  }
+
+  .highlight:hover::after {
+    @apply opacity-50;
   }
 
   .highlight-yellow {
-    @apply bg-highlight-yellow;
+    @apply bg-yellow-100 dark:bg-yellow-500/20;
+  }
+
+  .highlight-yellow::after {
+    @apply bg-yellow-200 dark:bg-yellow-500/30;
   }
 
   .highlight-blue {
-    @apply bg-highlight-blue;
+    @apply bg-blue-100 dark:bg-blue-500/20;
+  }
+
+  .highlight-blue::after {
+    @apply bg-blue-200 dark:bg-blue-500/30;
   }
 
   .highlight-green {
-    @apply bg-highlight-green;
+    @apply bg-green-100 dark:bg-green-500/20;
+  }
+
+  .highlight-green::after {
+    @apply bg-green-200 dark:bg-green-500/30;
   }
 
   .highlight-pink {
-    @apply bg-highlight-pink;
+    @apply bg-pink-100 dark:bg-pink-500/20;
+  }
+
+  .highlight-pink::after {
+    @apply bg-pink-200 dark:bg-pink-500/30;
   }
 }

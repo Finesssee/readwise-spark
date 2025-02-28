@@ -1,25 +1,226 @@
-
-import React, { useState, useRef } from 'react';
-import { Article } from '@/lib/types';
-import { ArrowLeft, Bookmark, Share2, MoreHorizontal, Clock } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Article, Highlight } from '@/lib/types';
+import { ArrowLeft, Bookmark, Share2, MoreHorizontal, Clock, X, Tag, Download, MessageSquare } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { v4 as uuidv4 } from 'uuid';
+import NoteDialog from './NoteDialog';
+import TagDialog from './TagDialog';
 
 interface ReaderProps {
   article: Article;
+  onUpdateArticle?: (article: Article) => void;
 }
 
-const Reader = ({ article }: ReaderProps) => {
+interface HighlightMenuProps {
+  position: { x: number; y: number } | null;
+  onHighlight: (color: string) => void;
+  onAddNote?: () => void;
+  onAddTags?: () => void;
+  onClose: () => void;
+}
+
+const HighlightMenu: React.FC<HighlightMenuProps> = ({ position, onHighlight, onAddNote, onAddTags, onClose }) => {
+  if (!position) return null;
+
+  const colors = [
+    { name: 'yellow', class: 'bg-highlight-yellow' },
+    { name: 'blue', class: 'bg-highlight-blue' },
+    { name: 'green', class: 'bg-highlight-green' },
+    { name: 'pink', class: 'bg-highlight-pink' },
+  ] as const;
+
+  return (
+    <div
+      className="fixed z-50 bg-background rounded-lg shadow-lg border p-2 flex items-center gap-1"
+      style={{ top: position.y + 10, left: position.x }}
+    >
+      {colors.map((color) => (
+        <button
+          key={color.name}
+          className={`w-6 h-6 rounded-full ${color.class} hover:ring-2 ring-offset-2`}
+          onClick={() => onHighlight(color.name)}
+        />
+      ))}
+      <div className="w-px h-6 bg-border mx-1" />
+      <button
+        className="p-1.5 hover:bg-secondary rounded-md"
+        onClick={onAddNote}
+      >
+        <MessageSquare className="w-4 h-4" />
+      </button>
+      <button
+        className="p-1.5 hover:bg-secondary rounded-md"
+        onClick={onAddTags}
+      >
+        <Tag className="w-4 h-4" />
+      </button>
+      <button
+        className="p-1.5 hover:bg-secondary rounded-md"
+        onClick={onClose}
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+};
+
+const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [saved, setSaved] = useState(article.saved);
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  const [selectedText, setSelectedText] = useState('');
+  const [highlights, setHighlights] = useState<Highlight[]>(article.highlights || []);
+  const [activeHighlight, setActiveHighlight] = useState<Highlight | null>(null);
+  const [showNoteDialog, setShowNoteDialog] = useState(false);
+  const [showTagDialog, setShowTagDialog] = useState(false);
+
+  useEffect(() => {
+    // Apply existing highlights to the content
+    applyHighlights();
+  }, [highlights]);
+
+  const applyHighlights = () => {
+    if (!contentRef.current) return;
+
+    // Remove existing highlight spans
+    const existingHighlights = contentRef.current.getElementsByClassName('highlight');
+    while (existingHighlights.length > 0) {
+      const el = existingHighlights[0];
+      const parent = el.parentNode;
+      if (parent) {
+        while (el.firstChild) {
+          parent.insertBefore(el.firstChild, el);
+        }
+        parent.removeChild(el);
+      }
+    }
+
+    // Apply new highlights
+    highlights.forEach((highlight) => {
+      const content = contentRef.current?.innerHTML || '';
+      const highlightedContent = content.replace(
+        highlight.text,
+        `<span class="highlight ${highlight.color}" data-highlight-id="${highlight.id}">${highlight.text}</span>`
+      );
+      if (contentRef.current) {
+        contentRef.current.innerHTML = highlightedContent;
+      }
+    });
+  };
 
   const handleHighlight = () => {
     const selection = window.getSelection();
-    if (!selection || selection.isCollapsed) return;
+    if (!selection || selection.isCollapsed) {
+      setMenuPosition(null);
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
     
-    console.log('Selected text:', selection.toString());
-    // In a real implementation, this would save the highlight
+    setSelectedText(selection.toString());
+    setMenuPosition({
+      x: rect.left + (rect.width / 2) - 100, // Center the menu
+      y: rect.top - 10,
+    });
   };
-  
+
+  const createHighlight = (color: 'yellow' | 'blue' | 'green' | 'pink') => {
+    const newHighlight: Highlight = {
+      id: uuidv4(),
+      articleId: article.id,
+      text: selectedText,
+      color,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updatedHighlights = [...highlights, newHighlight];
+    setHighlights(updatedHighlights);
+    setMenuPosition(null);
+    
+    if (onUpdateArticle) {
+      onUpdateArticle({
+        ...article,
+        highlights: updatedHighlights,
+      });
+    }
+  };
+
+  const handleAddNote = () => {
+    setActiveHighlight({
+      id: uuidv4(),
+      articleId: article.id,
+      text: selectedText,
+      color: 'yellow',
+      createdAt: new Date().toISOString(),
+    });
+    setShowNoteDialog(true);
+    setMenuPosition(null);
+  };
+
+  const handleAddTags = () => {
+    setActiveHighlight({
+      id: uuidv4(),
+      articleId: article.id,
+      text: selectedText,
+      color: 'yellow',
+      createdAt: new Date().toISOString(),
+    });
+    setShowTagDialog(true);
+    setMenuPosition(null);
+  };
+
+  const handleSaveHighlight = (highlight: Highlight) => {
+    const existingIndex = highlights.findIndex(h => h.id === highlight.id);
+    let updatedHighlights: Highlight[];
+    
+    if (existingIndex >= 0) {
+      updatedHighlights = [
+        ...highlights.slice(0, existingIndex),
+        highlight,
+        ...highlights.slice(existingIndex + 1),
+      ];
+    } else {
+      updatedHighlights = [...highlights, highlight];
+    }
+    
+    setHighlights(updatedHighlights);
+    setShowNoteDialog(false);
+    setShowTagDialog(false);
+    setActiveHighlight(null);
+    
+    if (onUpdateArticle) {
+      onUpdateArticle({
+        ...article,
+        highlights: updatedHighlights,
+      });
+    }
+  };
+
+  const exportHighlights = () => {
+    const exportData = {
+      articleTitle: article.title,
+      articleUrl: article.url,
+      highlights: highlights.map(h => ({
+        text: h.text,
+        note: h.note,
+        tags: h.tags,
+        color: h.color,
+        createdAt: h.createdAt,
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `highlights-${article.id}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="min-h-screen flex flex-col">
       {/* Reader Header */}
@@ -36,6 +237,13 @@ const Reader = ({ article }: ReaderProps) => {
               onClick={() => setSaved(!saved)}
             >
               <Bookmark className={`h-5 w-5 ${saved ? 'fill-current' : ''}`} />
+            </button>
+            <button 
+              className="p-2 rounded-full hover:bg-secondary transition-colors"
+              onClick={exportHighlights}
+              title="Export highlights"
+            >
+              <Download className="h-5 w-5" />
             </button>
             <button className="p-2 rounded-full hover:bg-secondary transition-colors">
               <Share2 className="h-5 w-5" />
@@ -89,6 +297,37 @@ const Reader = ({ article }: ReaderProps) => {
           />
         </div>
       </div>
+
+      <HighlightMenu
+        position={menuPosition}
+        onHighlight={createHighlight}
+        onAddNote={handleAddNote}
+        onAddTags={handleAddTags}
+        onClose={() => setMenuPosition(null)}
+      />
+
+      {showNoteDialog && activeHighlight && (
+        <NoteDialog
+          highlight={activeHighlight}
+          onSave={handleSaveHighlight}
+          onClose={() => {
+            setShowNoteDialog(false);
+            setActiveHighlight(null);
+          }}
+        />
+      )}
+
+      {showTagDialog && activeHighlight && (
+        <TagDialog
+          highlight={activeHighlight}
+          onSave={handleSaveHighlight}
+          onClose={() => {
+            setShowTagDialog(false);
+            setActiveHighlight(null);
+          }}
+          availableTags={article.tags}
+        />
+      )}
     </div>
   );
 };

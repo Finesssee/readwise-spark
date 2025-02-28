@@ -1,4 +1,3 @@
-
 export interface Article {
   id: string;
   title: string;
@@ -22,6 +21,7 @@ export interface Highlight {
   text: string;
   color: 'yellow' | 'blue' | 'green' | 'pink';
   note?: string;
+  tags?: string[];
   createdAt: string;
 }
 
