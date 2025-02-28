@@ -21,7 +21,9 @@ const Command = React.forwardRef<
 ))
 Command.displayName = CommandPrimitive.displayName
 
-interface CommandDialogProps extends DialogProps {}
+interface CommandDialogProps extends DialogProps {
+  children?: React.ReactNode;
+}
 
 const CommandDialog = ({ children, ...props }: CommandDialogProps) => {
   return (
@@ -66,6 +68,10 @@ const CommandList = React.forwardRef<
 ))
 
 CommandList.displayName = CommandPrimitive.List.displayName
+
+interface CommandEmpty extends React.ComponentPropsWithoutRef<typeof CommandPrimitive.Empty> {
+  className?: string;
+}
 
 const CommandEmpty = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Empty>,

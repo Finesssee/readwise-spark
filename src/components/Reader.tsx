@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Article, Highlight } from '@/lib/types';
 import { ArrowLeft, Bookmark, Share2, MoreHorizontal, Clock, X, Tag, Download, MessageSquare } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -86,12 +86,7 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
   const [showNoteDialog, setShowNoteDialog] = useState(false);
   const [showTagDialog, setShowTagDialog] = useState(false);
 
-  useEffect(() => {
-    // Apply existing highlights to the content
-    applyHighlights();
-  }, [highlights]);
-
-  const applyHighlights = () => {
+  const applyHighlights = useCallback(() => {
     if (!contentRef.current) return;
 
     // Remove existing highlight spans
@@ -124,7 +119,7 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
 
     const nodesToHighlight: { node: Node; highlight: Highlight; startIndex: number }[] = [];
     let node: Node | null;
-
+    
     // Find all text nodes that contain highlight text
     while ((node = walker.nextNode())) {
       const nodeText = node.textContent || '';
@@ -174,7 +169,12 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
         console.error('Failed to apply highlight:', error);
       }
     });
-  };
+  }, [highlights]);
+
+  useEffect(() => {
+    // Apply existing highlights to the content
+    applyHighlights();
+  }, [applyHighlights]);
 
   const handleHighlight = () => {
     const selection = window.getSelection();
