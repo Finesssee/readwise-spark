@@ -27,39 +27,51 @@ const HighlightMenu: React.FC<HighlightMenuProps> = ({ position, onHighlight, on
     { name: 'blue', class: 'bg-highlight-blue' },
     { name: 'green', class: 'bg-highlight-green' },
     { name: 'pink', class: 'bg-highlight-pink' },
+    { name: 'purple', class: 'bg-highlight-purple' },
+    { name: 'orange', class: 'bg-highlight-orange' },
+    { name: 'red', class: 'bg-highlight-red' },
+    { name: 'teal', class: 'bg-highlight-teal' },
   ] as const;
 
   return (
     <div
-      className="fixed z-50 bg-background rounded-lg shadow-lg border p-2 flex items-center gap-1"
+      className="fixed z-50 bg-background rounded-lg shadow-lg border p-2 flex items-center gap-1 flex-wrap max-w-sm"
       style={{ top: position.y + 10, left: position.x }}
     >
-      {colors.map((color) => (
-        <button
-          key={color.name}
-          className={`w-6 h-6 rounded-full ${color.class} hover:ring-2 ring-offset-2`}
-          onClick={() => onHighlight(color.name)}
-        />
-      ))}
+      <div className="flex flex-wrap gap-1 p-1">
+        {colors.map((color) => (
+          <button
+            key={color.name}
+            className={`w-6 h-6 rounded-full ${color.class} hover:ring-2 ring-offset-2`}
+            onClick={() => onHighlight(color.name)}
+            title={color.name.charAt(0).toUpperCase() + color.name.slice(1)}
+          />
+        ))}
+      </div>
       <div className="w-px h-6 bg-border mx-1" />
-      <button
-        className="p-1.5 hover:bg-secondary rounded-md"
-        onClick={onAddNote}
-      >
-        <MessageSquare className="w-4 h-4" />
-      </button>
-      <button
-        className="p-1.5 hover:bg-secondary rounded-md"
-        onClick={onAddTags}
-      >
-        <Tag className="w-4 h-4" />
-      </button>
-      <button
-        className="p-1.5 hover:bg-secondary rounded-md"
-        onClick={onClose}
-      >
-        <X className="w-4 h-4" />
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          className="p-1.5 hover:bg-secondary rounded-md"
+          onClick={onAddNote}
+          title="Add note"
+        >
+          <MessageSquare className="w-4 h-4" />
+        </button>
+        <button
+          className="p-1.5 hover:bg-secondary rounded-md"
+          onClick={onAddTags}
+          title="Add tags"
+        >
+          <Tag className="w-4 h-4" />
+        </button>
+        <button
+          className="p-1.5 hover:bg-secondary rounded-md"
+          onClick={onClose}
+          title="Close"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
     </div>
   );
 };

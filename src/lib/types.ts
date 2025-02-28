@@ -19,7 +19,7 @@ export interface Highlight {
   id: string;
   articleId: string;
   text: string;
-  color: 'yellow' | 'blue' | 'green' | 'pink';
+  color: 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange' | 'red' | 'teal';
   note?: string;
   tags?: string[];
   createdAt: string;

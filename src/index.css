@@ -201,4 +201,36 @@
   .highlight-pink::after {
     @apply bg-pink-200 dark:bg-pink-500/30;
   }
+
+  .highlight-purple {
+    @apply bg-purple-100 dark:bg-purple-500/20;
+  }
+
+  .highlight-purple::after {
+    @apply bg-purple-200 dark:bg-purple-500/30;
+  }
+
+  .highlight-orange {
+    @apply bg-orange-100 dark:bg-orange-500/20;
+  }
+
+  .highlight-orange::after {
+    @apply bg-orange-200 dark:bg-orange-500/30;
+  }
+
+  .highlight-red {
+    @apply bg-red-100 dark:bg-red-500/20;
+  }
+
+  .highlight-red::after {
+    @apply bg-red-200 dark:bg-red-500/30;
+  }
+
+  .highlight-teal {
+    @apply bg-teal-100 dark:bg-teal-500/20;
+  }
+
+  .highlight-teal::after {
+    @apply bg-teal-200 dark:bg-teal-500/30;
+  }
 }
