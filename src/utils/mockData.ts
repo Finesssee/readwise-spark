@@ -1,6 +1,6 @@
 import { Article } from "@/lib/types";
 import { SearchService } from "@/lib/services/SearchService";
-import { SearchFilters } from "@/lib/contexts/SearchContext";
+import { SearchFilters } from "@/lib/types/search";
 
 const STORAGE_KEY = 'readwise_articles';
 
