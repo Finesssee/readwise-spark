@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Article, Highlight } from '@/lib/types';
 import { ArrowLeft, Bookmark, Share2, MoreHorizontal, Clock, X, Tag, Download, MessageSquare } from 'lucide-react';
@@ -112,7 +113,7 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
       const content = contentRef.current?.innerHTML || '';
       const highlightedContent = content.replace(
         highlight.text,
-        `<span class="highlight ${highlight.color}" data-highlight-id="${highlight.id}">${highlight.text}</span>`
+        `<span class="highlight highlight-${highlight.color}" data-highlight-id="${highlight.id}">${highlight.text}</span>`
       );
       if (contentRef.current) {
         contentRef.current.innerHTML = highlightedContent;
@@ -137,7 +138,7 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
     });
   };
 
-  const createHighlight = (color: 'yellow' | 'blue' | 'green' | 'pink') => {
+  const createHighlight = (color: 'yellow' | 'blue' | 'green' | 'pink' | 'purple' | 'orange' | 'red' | 'teal') => {
     const newHighlight: Highlight = {
       id: uuidv4(),
       articleId: article.id,

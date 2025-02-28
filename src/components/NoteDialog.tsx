@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { Highlight } from '@/lib/types';
@@ -71,4 +72,4 @@ const NoteDialog: React.FC<NoteDialogProps> = ({ highlight, onSave, onClose }) =
   );
 };
 
-export default NoteDialog; 
+export default NoteDialog;

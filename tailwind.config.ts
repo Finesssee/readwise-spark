@@ -77,6 +77,10 @@ export default {
           blue: "rgba(33, 150, 243, 0.3)",
           green: "rgba(76, 175, 80, 0.3)",
           pink: "rgba(233, 30, 99, 0.3)",
+          purple: "rgba(156, 39, 176, 0.3)",
+          orange: "rgba(255, 152, 0, 0.3)",
+          red: "rgba(244, 67, 54, 0.3)",
+          teal: "rgba(0, 150, 136, 0.3)"
         },
       },
       borderRadius: {

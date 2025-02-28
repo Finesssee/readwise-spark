@@ -32,6 +32,12 @@ const ReaderView = () => {
     return () => clearTimeout(timer);
   }, [id, navigate]);
   
+  const handleUpdateArticle = (updatedArticle: Article) => {
+    setArticle(updatedArticle);
+    // In a real application, this would save to the backend
+    console.log('Article updated:', updatedArticle);
+  };
+  
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -47,7 +53,7 @@ const ReaderView = () => {
     return null;
   }
   
-  return <Reader article={article} />;
+  return <Reader article={article} onUpdateArticle={handleUpdateArticle} />;
 };
 
 export default ReaderView;
