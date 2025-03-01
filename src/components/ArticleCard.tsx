@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Bookmark, Clock } from 'lucide-react';
@@ -14,7 +13,7 @@ const ArticleCard = ({ article, view = 'grid' }: ArticleCardProps) => {
   const isGrid = view === 'grid';
   
   return (
-    <Link to={article.url} className={cn(
+    <Link to={`/reader/${article.id}`} className={cn(
       "group relative flex overflow-hidden rounded-lg border bg-card transition-all duration-300",
       "hover:shadow-md",
       isGrid ? "flex-col" : "items-center space-x-4"

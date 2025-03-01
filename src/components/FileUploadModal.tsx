@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, Upload } from 'lucide-react';
+import { X, Upload, AlertCircle, Info } from 'lucide-react';
 import { processUploadedFile } from '@/utils/uploadUtils';
 import { useToast } from '@/components/ui/toast';
 
@@ -11,6 +11,7 @@ interface FileUploadModalProps {
 const FileUploadModal: React.FC<FileUploadModalProps> = ({ isOpen, onClose }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<{message: string, type: 'info' | 'error' | 'success'} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addToast } = useToast();
 
@@ -45,13 +46,28 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ isOpen, onClose }) =>
   const handleFiles = async (files: FileList) => {
     console.log('Processing files:', Array.from(files).map(f => f.name).join(', '));
     setIsUploading(true);
+    setUploadStatus({message: 'Processing file...', type: 'info'});
     
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         
+        // Log file details for debugging
+        console.log('File details:', {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          lastModified: new Date(file.lastModified).toISOString()
+        });
+        
         // Process this file
         const result = await processUploadedFile(file);
+        
+        // Update status
+        setUploadStatus({
+          message: result.message,
+          type: result.status === 'success' ? 'success' : 'error'
+        });
         
         // Show toast notification
         addToast({
@@ -59,16 +75,23 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ isOpen, onClose }) =>
           description: result.message,
           type: result.status === 'success' ? 'success' : 'error'
         });
+        
+        // If successful, close after a delay
+        if (result.status === 'success') {
+          setTimeout(() => {
+            onClose();
+          }, 2000);
+        }
       }
-      
-      // Only close if we're done
-      onClose();
     } catch (error) {
       console.error('Error during upload:', error);
       
+      const errorMessage = error instanceof Error ? error.message : 'Error uploading file';
+      setUploadStatus({message: errorMessage, type: 'error'});
+      
       addToast({
         title: 'Upload Failed',
-        description: error instanceof Error ? error.message : 'Error uploading file',
+        description: errorMessage,
         type: 'error'
       });
     } finally {
@@ -97,6 +120,11 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ isOpen, onClose }) =>
     } as unknown as FileList;
     
     handleFiles(fileList);
+  };
+
+  // Reset the upload status
+  const resetStatus = () => {
+    setUploadStatus(null);
   };
 
   if (!isOpen) return null;
@@ -143,20 +171,53 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ isOpen, onClose }) =>
         </div>
         
         {/* Upload Status */}
+        {uploadStatus && (
+          <div className={`mt-4 p-4 rounded-lg flex items-start ${
+            uploadStatus.type === 'error' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' : 
+            uploadStatus.type === 'success' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+            'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+          }`}>
+            <div className="flex-shrink-0 mr-3 mt-0.5">
+              {uploadStatus.type === 'error' ? (
+                <AlertCircle className="h-5 w-5" />
+              ) : uploadStatus.type === 'success' ? (
+                <Upload className="h-5 w-5" />
+              ) : (
+                <Info className="h-5 w-5" />
+              )}
+            </div>
+            <div>
+              <p className="text-sm font-medium">{uploadStatus.message}</p>
+            </div>
+          </div>
+        )}
+        
+        {/* Loading indicator */}
         {isUploading && (
           <div className="mt-4 p-4 bg-secondary/50 rounded-lg">
-            <p className="text-center">Uploading files...</p>
+            <div className="flex items-center justify-center">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+              <p className="ml-3">Uploading file...</p>
+            </div>
           </div>
         )}
         
         {/* Debug buttons */}
-        <div className="mt-4 flex justify-center">
+        <div className="mt-4 flex justify-between">
           <button
             type="button"
             className="bg-primary text-primary-foreground px-4 py-2 rounded text-sm"
             onClick={handleTestFileClick}
           >
             Upload Test File
+          </button>
+          
+          <button
+            type="button"
+            className="bg-secondary text-secondary-foreground px-4 py-2 rounded text-sm"
+            onClick={resetStatus}
+          >
+            Reset Status
           </button>
         </div>
       </div>

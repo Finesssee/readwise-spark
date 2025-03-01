@@ -1,13 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ArticleCard from '@/components/ArticleCard';
 import { getArticles } from '@/utils/mockData';
-import { ArticleView } from '@/lib/types';
+import { ArticleView, Article } from '@/lib/types';
 import { LayoutGrid, List, Filter, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const Library = () => {
   const [view, setView] = useState<ArticleView>('grid');
-  const articles = getArticles();
+  const [articles, setArticles] = useState<Article[]>([]);
+  
+  // Fetch articles when component mounts or when user navigates to this page
+  useEffect(() => {
+    const fetchArticles = () => {
+      const latestArticles = getArticles();
+      setArticles(latestArticles);
+    };
+    
+    fetchArticles();
+    
+    // Add event listener for focus to refresh articles when user returns to the page
+    window.addEventListener('focus', fetchArticles);
+    
+    return () => {
+      window.removeEventListener('focus', fetchArticles);
+    };
+  }, []);
   
   return (
     <div className="container mx-auto px-4 py-8">
@@ -45,16 +62,23 @@ const Library = () => {
         </div>
       </div>
       
-      <div className={cn(
-        "grid gap-4",
-        view === 'grid' 
-          ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4" 
-          : "grid-cols-1"
-      )}>
-        {articles.map((article) => (
-          <ArticleCard key={article.id} article={article} view={view} />
-        ))}
-      </div>
+      {articles.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">No articles in your library yet.</p>
+          <p className="text-muted-foreground mt-2">Upload files or add articles to get started.</p>
+        </div>
+      ) : (
+        <div className={cn(
+          "grid gap-4",
+          view === 'grid' 
+            ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4" 
+            : "grid-cols-1"
+        )}>
+          {articles.map((article) => (
+            <ArticleCard key={article.id} article={article} view={view} />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

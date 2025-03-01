@@ -13,34 +13,65 @@ const fileExtensionMap: Record<string, string> = {
   markdown: 'Note',
 };
 
+// Map MIME types to source categories as a fallback
+const mimeTypeMap: Record<string, string> = {
+  'application/pdf': 'PDF',
+  'application/epub+zip': 'Book',
+  'text/html': 'Web',
+  'text/plain': 'Text',
+  'text/markdown': 'Note',
+};
+
 /**
- * Detects the file type based on file extension
+ * Detects the file type based on file extension and MIME type
  */
 export function detectFileType(file: File): string | null {
   try {
-    console.log('Detecting file type for:', file.name);
+    console.log('Detecting file type for:', file.name, 'MIME type:', file.type);
     
-    // Get the file extension (everything after the last dot)
+    // First try by file extension
     const filename = file.name.trim();
     const lastDotIndex = filename.lastIndexOf('.');
     
-    if (lastDotIndex === -1) {
+    if (lastDotIndex !== -1) {
+      const extension = filename.slice(lastDotIndex + 1).toLowerCase();
+      console.log('File extension:', extension);
+      
+      const fileTypeByExtension = fileExtensionMap[extension];
+      if (fileTypeByExtension) {
+        console.log('Detected file type by extension:', fileTypeByExtension);
+        return fileTypeByExtension;
+      }
+      console.log('Extension not recognized:', extension);
+    } else {
       console.log('No file extension found');
-      return null;
     }
     
-    const extension = filename.slice(lastDotIndex + 1).toLowerCase();
-    console.log('File extension:', extension);
-    
-    const fileType = fileExtensionMap[extension];
-    
-    if (!fileType) {
-      console.log('Unsupported file extension:', extension);
-      return null;
+    // If extension doesn't work, try by MIME type
+    if (file.type) {
+      const fileTypeByMime = mimeTypeMap[file.type];
+      if (fileTypeByMime) {
+        console.log('Detected file type by MIME type:', fileTypeByMime);
+        return fileTypeByMime;
+      }
+      console.log('MIME type not recognized:', file.type);
+    } else {
+      console.log('No MIME type available');
     }
     
-    console.log('Detected file type:', fileType);
-    return fileType;
+    // Special case for common file types that might have incorrect MIME types
+    if (file.type.includes('pdf')) {
+      console.log('Special case: PDF detected by MIME type substring');
+      return 'PDF';
+    }
+    
+    if (file.type.includes('epub')) {
+      console.log('Special case: EPUB detected by MIME type substring');
+      return 'Book';
+    }
+    
+    console.log('Could not detect file type');
+    return null;
   } catch (error) {
     console.error('Error detecting file type:', error);
     return null;
@@ -68,7 +99,18 @@ export async function processUploadedFile(file: File): Promise<{ status: 'succes
     // Detect file type
     const fileType = detectFileType(file);
     if (!fileType) {
-      return { status: 'error', message: 'Unsupported file type. Please upload EPUB, PDF, HTML, TXT, or MD files.' };
+      // More specific error message
+      let errorMessage = 'Unsupported file type. ';
+      
+      if (file.name.lastIndexOf('.') === -1) {
+        errorMessage += 'The file has no extension. ';
+      } else {
+        const extension = file.name.slice(file.name.lastIndexOf('.') + 1).toLowerCase();
+        errorMessage += `The file extension "${extension}" is not supported. `;
+      }
+      
+      errorMessage += 'Please upload EPUB, PDF, HTML, TXT, or MD files.';
+      return { status: 'error', message: errorMessage };
     }
     
     // Create a blob URL for the file
