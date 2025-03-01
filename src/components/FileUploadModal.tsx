@@ -1,6 +1,6 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { X, Upload, FileType } from 'lucide-react';
-import { processUploadedFile, UploadResult } from '@/utils/uploadUtils';
+import React, { useState, useRef } from 'react';
+import { X, Upload } from 'lucide-react';
+import { processUploadedFile } from '@/utils/uploadUtils';
 import { useToast } from '@/components/ui/toast';
 
 interface FileUploadModalProps {
@@ -14,89 +14,96 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ isOpen, onClose }) =>
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addToast } = useToast();
 
-  // Handle drag events
-  const handleDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  // Basic drag event handlers
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    e.stopPropagation();
     setIsDragging(true);
-  }, []);
+  };
 
-  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    e.stopPropagation();
     setIsDragging(false);
-  }, []);
+  };
 
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  }, []);
-
-  // Process uploaded files
-  const processFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
+    setIsDragging(false);
     
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files);
+    }
+  };
+
+  // Handle file input change
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFiles(e.target.files);
+    }
+  };
+
+  // Process the files
+  const handleFiles = async (files: FileList) => {
+    console.log('Processing files:', Array.from(files).map(f => f.name).join(', '));
     setIsUploading(true);
     
     try {
-      // Process each file
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        
+        // Process this file
         const result = await processUploadedFile(file);
         
-        // Show toast notification for each file
+        // Show toast notification
         addToast({
-          title: result.status === 'success' ? 'Upload Successful' : 'Upload Failed',
+          title: result.status === 'success' ? 'Upload Success' : 'Upload Failed',
           description: result.message,
-          type: result.status === 'success' ? 'success' : 'error',
-          duration: 5000
+          type: result.status === 'success' ? 'success' : 'error'
         });
       }
       
-      // Close modal after all files are processed
+      // Only close if we're done
       onClose();
     } catch (error) {
-      console.error('Upload error:', error);
+      console.error('Error during upload:', error);
+      
       addToast({
         title: 'Upload Failed',
-        description: error instanceof Error ? error.message : 'An unknown error occurred',
-        type: 'error',
-        duration: 5000
+        description: error instanceof Error ? error.message : 'Error uploading file',
+        type: 'error'
       });
     } finally {
       setIsUploading(false);
     }
   };
 
-  // Handle file drop
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    
-    const { files } = e.dataTransfer;
-    processFiles(files);
-  }, []);
-
-  // Handle file input change
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { files } = e.target;
-    processFiles(files);
-  };
-
-  // Handle button click to open file dialog
-  const handleButtonClick = () => {
+  // Open the file browser
+  const handleBrowseClick = () => {
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
+  };
+
+  // Create a test file for debugging
+  const handleTestFileClick = () => {
+    const testContent = "This is a test document for upload debugging.";
+    const blob = new Blob([testContent], { type: 'text/plain' });
+    const file = new File([blob], "test-document.txt", { type: 'text/plain' });
+    
+    // Create a FileList-like object
+    const fileList = {
+      0: file,
+      length: 1,
+      item: (index: number) => (index === 0 ? file : null)
+    } as unknown as FileList;
+    
+    handleFiles(fileList);
   };
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="relative w-full max-w-md bg-background rounded-lg shadow-lg p-6 hardware-accelerated">
+      <div className="relative w-full max-w-md bg-background rounded-lg shadow-lg p-6">
         {/* Close button */}
         <button
           onClick={onClose}
@@ -113,11 +120,10 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ isOpen, onClose }) =>
           className={`mt-4 p-8 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors duration-200 ${
             isDragging ? 'border-primary bg-primary/5' : 'border-border'
           }`}
-          onDragEnter={handleDragEnter}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          onClick={handleButtonClick}
+          onClick={handleBrowseClick}
         >
           <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-4" />
           <p className="text-lg font-medium">Drag and drop files here</p>
@@ -132,8 +138,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ isOpen, onClose }) =>
             onChange={handleFileInputChange}
             className="hidden"
             multiple
-            accept=".pdf,.epub,.html,.txt,.md"
-            disabled={isUploading}
+            accept=".pdf,.epub,.html,.htm,.txt,.md"
           />
         </div>
         
@@ -143,6 +148,17 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ isOpen, onClose }) =>
             <p className="text-center">Uploading files...</p>
           </div>
         )}
+        
+        {/* Debug buttons */}
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            className="bg-primary text-primary-foreground px-4 py-2 rounded text-sm"
+            onClick={handleTestFileClick}
+          >
+            Upload Test File
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -117,11 +117,14 @@ export const updateArticle = (updatedArticle: Article): void => {
   const index = articles.findIndex(article => article.id === updatedArticle.id);
   if (index !== -1) {
     articles[index] = updatedArticle;
-    // Persist to localStorage
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(articles));
-    // Update search index when article is modified
-    searchService.updateIndex(articles);
+  } else {
+    // Add new article if it doesn't exist
+    articles.push(updatedArticle);
   }
+  // Persist to localStorage
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(articles));
+  // Update search index when article is modified
+  searchService.updateIndex(articles);
 };
 
 // Search articles

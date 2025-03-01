@@ -73,6 +73,7 @@ const AddMenuDropdown: React.FC<AddMenuDropdownProps> = ({
 
   // Handle upload click
   const handleUploadClick = () => {
+    console.log('Upload option clicked, opening upload modal');
     setIsUploadModalOpen(true);
     onClose(); // Close the dropdown
   };
