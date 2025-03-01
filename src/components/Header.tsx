@@ -1,9 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, BookOpen, Plus, Settings, Menu, X } from 'lucide-react';
+import { 
+  Search, 
+  Settings, 
+  Menu, 
+  X
+} from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import SearchDialog from '@/components/search/SearchDialog';
 import { useSearchHotkey } from '@/hooks/use-search-hotkey';
 
@@ -16,21 +21,22 @@ const Header = () => {
   useSearchHotkey(() => setSearchOpen(true));
 
   return (
-    <header className="sticky top-0 z-50 glass backdrop-blur-md border-b">
-      <div className="container flex items-center justify-between h-16 px-4 md:px-6 mx-auto">
+    <header className="sticky top-0 z-50 glass backdrop-blur-md border-b hardware-accelerated">
+      <div className="flex items-center justify-between h-16 px-4 md:px-6">
+        {/* Left side - empty or for navigation breadcrumbs */}
         <div className="flex items-center gap-2">
-          <Link to="/" className="flex items-center">
-            <BookOpen className="w-6 h-6 mr-2" />
-            <span className="text-xl font-medium tracking-tight">Spark</span>
-          </Link>
+          {/* Empty space for now, could be used for breadcrumbs */}
         </div>
-        
+
+        {/* Right side with search and settings */}
         <div className="flex items-center gap-2">
           {!isMobile ? (
             <>
               <Button
-                variant="outline"
-                className="relative h-9 w-9 p-0 xl:h-10 xl:w-60 xl:justify-start xl:px-3 xl:py-2"
+                className={cn(
+                  buttonVariants({ variant: "outline" }),
+                  "relative h-9 w-9 p-0 xl:h-10 xl:w-60 xl:justify-start xl:px-3 xl:py-2 transition-medium"
+                )}
                 onClick={() => setSearchOpen(true)}
               >
                 <Search className="h-4 w-4 xl:mr-2" />
@@ -39,13 +45,13 @@ const Header = () => {
                   <span className="text-xs">⌘</span>K
                 </kbd>
               </Button>
-              <button className="p-2 rounded-full hover:bg-secondary transition-colors duration-200">
+              <button className="p-2 rounded-full hover:bg-secondary transition-colors duration-100">
                 <Settings className="h-5 w-5" />
               </button>
             </>
           ) : (
             <button 
-              className="p-2 rounded-full hover:bg-secondary transition-colors duration-200"
+              className="p-2 rounded-full hover:bg-secondary transition-colors duration-100"
               onClick={() => setShowMobileMenu(!showMobileMenu)}
             >
               {showMobileMenu ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -57,19 +63,14 @@ const Header = () => {
       {/* Mobile Menu */}
       {isMobile && showMobileMenu && (
         <div className={cn(
-          "absolute top-16 left-0 right-0 glass z-50 border-b animate-fadeIn",
+          "absolute top-16 left-0 right-0 glass z-50 border-b animate-dropdown hardware-accelerated"
         )}>
-          <div className="container px-4 py-4 mx-auto space-y-4">
+          <div className="px-4 py-4 space-y-4">
             <nav className="space-y-2">
-              <Link to="/" className="flex items-center p-2 hover:bg-secondary rounded-md transition-colors duration-200">
-                <BookOpen className="w-5 h-5 mr-3" />
+              <Link to="/" className="flex items-center p-2 hover:bg-secondary rounded-md transition-colors duration-100">
                 <span>My Library</span>
               </Link>
-              <button className="flex items-center p-2 w-full text-left hover:bg-secondary rounded-md transition-colors duration-200">
-                <Plus className="w-5 h-5 mr-3" />
-                <span>Add New</span>
-              </button>
-              <button className="flex items-center p-2 w-full text-left hover:bg-secondary rounded-md transition-colors duration-200">
+              <button className="flex items-center p-2 w-full text-left hover:bg-secondary rounded-md transition-colors duration-100">
                 <Settings className="w-5 h-5 mr-3" />
                 <span>Settings</span>
               </button>

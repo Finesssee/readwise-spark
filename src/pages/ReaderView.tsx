@@ -39,7 +39,7 @@ const ReaderView = () => {
   
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="h-full flex items-center justify-center">
         <div className="text-center animate-pulse">
           <Loader className="h-8 w-8 mx-auto animate-spin text-muted-foreground" />
           <p className="mt-2 text-muted-foreground">Loading article...</p>
