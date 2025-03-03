@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getArticleById, updateArticle } from '@/utils/mockData';
 import { Article } from '@/lib/types';
@@ -11,7 +11,8 @@ const ReaderView = () => {
   const [article, setArticle] = useState<Article | null>(null);
   const [loading, setLoading] = useState(true);
   
-  const loadArticle = () => {
+  // Load article function with polling for content updates
+  const loadArticle = useCallback(() => {
     if (!id) {
       navigate('/');
       return;
@@ -20,24 +21,34 @@ const ReaderView = () => {
     const foundArticle = getArticleById(id);
     if (foundArticle) {
       setArticle(foundArticle);
+      
+      // If content is empty, we're still loading it in the background
+      // Continue polling for updates until content is available
+      if (foundArticle.content === '' && loading) {
+        // Set a timer to check for content updates
+        const timer = setTimeout(() => {
+          loadArticle();
+        }, 500);
+        
+        return () => clearTimeout(timer);
+      }
     } else {
       navigate('/');
     }
     setLoading(false);
-  };
+  }, [id, navigate, loading]);
 
   useEffect(() => {
-    // Simulate loading from API
-    const timer = setTimeout(loadArticle, 500);
+    const timer = setTimeout(loadArticle, 100);
     return () => clearTimeout(timer);
-  }, [id, navigate, loadArticle]);
+  }, [id, loadArticle]);
   
   const handleUpdateArticle = (updatedArticle: Article) => {
     updateArticle(updatedArticle);
     setArticle(updatedArticle);
   };
   
-  if (loading) {
+  if (loading && !article) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center animate-pulse">

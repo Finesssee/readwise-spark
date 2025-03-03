@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Article, Highlight } from '@/lib/types';
-import { ArrowLeft, Bookmark, Share2, MoreHorizontal, Clock, X, Tag, Download, MessageSquare, FileIcon as FileIconLucide, BookIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Bookmark, Share2, MoreHorizontal, Clock, X, Tag, MessageSquare, FileIcon as FileIconLucide, BookIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, ChevronLeftSquare, ChevronRightSquare } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import NoteDialog from './NoteDialog';
@@ -84,58 +84,151 @@ const EpubReader = ({ url, title }: { url: string, title: string }) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingLocations, setLoadingLocations] = useState(false);
+  const [fontSize, setFontSize] = useState(100); // Font size in percentage
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
   
-  useEffect(() => {
-    let rendition: any;
-    let mounted = true;
+  // Move the initialization code out of useEffect
+  const initializeReader = useCallback(async () => {
+    let epubBook: any = null;
+    let rendition: any = null;
     
-    const initializeReader = async () => {
+    try {
+      if (!viewerRef.current) return;
+      
+      setError(null); // Clear any previous errors
+      setIsLoading(true);
+      console.log("Initializing EPUB reader for:", url);
+      
+      // Initialize the book - using a try-catch for better error handling
       try {
-        if (!viewerRef.current) return;
-        
-        // Initialize the book
-        const epubBook = ePub(url);
-        if (mounted) setBook(epubBook);
-        
-        // Initialize the rendition
+        epubBook = ePub(url, { openAs: 'epub' });
+        console.log("EPUB book created");
+      } catch (err) {
+        console.error("Error creating EPUB:", err);
+        throw new Error("Could not create EPUB reader. The file may be corrupted.");
+      }
+      
+      setBook(epubBook);
+      
+      // Initialize the rendition with minimal settings first
+      try {
         rendition = epubBook.renderTo(viewerRef.current, {
           width: '100%',
           height: '100%',
-          spread: 'auto'
+          flow: 'paginated',
+          allowScriptedContent: false, // For security
+          ignoreClass: 'annotator-hl' // Ignore highlight elements
         });
-        
-        // Display the book
-        await rendition.display();
-        
-        // Get total pages - using type assertion since the epubjs types might be incomplete
-        const totalLoc = (epubBook.locations as any).total;
-        if (mounted) setTotalPages(totalLoc || 1);
-        
-        // Set up event listeners
-        rendition.on('relocated', (location: any) => {
-          if (mounted) {
-            setCurrentPage(location.start.location);
-            setIsLoading(false);
-          }
-        });
-        
-        // Generate locations for page numbers
-        await epubBook.locations.generate(1024);
-      } catch (error) {
-        console.error("Error loading EPUB:", error);
-        if (mounted) setIsLoading(false);
+        console.log("Rendition created");
+      } catch (err) {
+        console.error("Error creating rendition:", err);
+        throw new Error("Could not render the EPUB content.");
       }
-    };
+      
+      // Apply font size immediately
+      rendition.themes.fontSize(`${fontSize}%`);
+      
+      // Apply theme based on current system preference
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      
+      // Register and apply themes - simplified for faster loading
+      rendition.themes.register("light", { body: { color: "#000", background: "#fff" } });
+      rendition.themes.register("dark", { body: { color: "#fff", background: "#121212" } });
+      rendition.themes.select(prefersDark ? "dark" : "light");
+      
+      // Display the book with error handling
+      try {
+        console.log("Displaying EPUB content");
+        await rendition.display();
+        console.log("EPUB content displayed");
+        
+        // Set loading to false as soon as content is visible
+        setIsLoading(false);
+      } catch (err) {
+        console.error("Error displaying EPUB content:", err);
+        throw new Error("Could not display the EPUB content.");
+      }
+      
+      // Set up event listeners
+      rendition.on('relocated', (location: any) => {
+        const pageNumber = location.start.location || location.start.index || 0;
+        setCurrentPage(pageNumber);
+      });
+      
+      // Only start generating locations after content is already visible
+      // This way the user can start reading while page calculations happen in background
+      setTimeout(() => {
+        generateLocations(epubBook);
+      }, 1000);
+    } catch (error) {
+      console.error("Error in EPUB reader initialization:", error);
+      setIsLoading(false);
+      setError(error instanceof Error ? error.message : "Failed to load the EPUB book.");
+    }
+  }, [url, fontSize]);
+  
+  // Separate function for location generation to keep code cleaner
+  const generateLocations = useCallback(async (book: any) => {
+    if (!book) return;
     
+    setLoadingLocations(true);
+    
+    try {
+      console.log("Generating EPUB locations in background...");
+      
+      // Use a smaller number for faster processing
+      await book.locations.generate(512);
+      
+      const totalLoc = (book.locations as any).total || 1;
+      console.log("EPUB locations generated, total pages:", totalLoc);
+      
+      setTotalPages(totalLoc);
+      setLoadingLocations(false);
+    } catch (error) {
+      console.error("Error generating EPUB locations:", error);
+      setLoadingLocations(false);
+      setTotalPages(1); // Default fallback
+    }
+  }, []);
+  
+  // Use the useEffect hook to call initializeReader
+  useEffect(() => {
+    let mounted = true;
+    
+    // Start initialization
     initializeReader();
     
+    // Cleanup function
     return () => {
       mounted = false;
       if (book) {
-        book.destroy();
+        try {
+          console.log("Destroying EPUB book instance");
+          book.destroy();
+        } catch (err) {
+          console.error("Error destroying EPUB instance:", err);
+        }
       }
     };
-  }, [url]);
+  }, [initializeReader, book]);
+  
+  const changeFontSize = (delta: number) => {
+    const newSize = Math.max(50, Math.min(200, fontSize + delta));
+    setFontSize(newSize);
+    
+    if (book && book.rendition) {
+      book.rendition.themes.fontSize(`${newSize}%`);
+    }
+  };
+  
+  const resetFontSize = () => {
+    setFontSize(100);
+    if (book && book.rendition) {
+      book.rendition.themes.fontSize('100%');
+    }
+  };
   
   const goToPrevPage = () => {
     if (book && book.rendition) {
@@ -154,42 +247,115 @@ const EpubReader = ({ url, title }: { url: string, title: string }) => {
       goToPrevPage();
     } else if (e.key === 'ArrowRight') {
       goToNextPage();
+    } else if (e.key === '+' || e.key === '=') {
+      changeFontSize(10);
+    } else if (e.key === '-') {
+      changeFontSize(-10);
+    } else if (e.key === '0') {
+      resetFontSize();
     }
   };
   
+  // Touch event handlers for swipe navigation
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStartX(e.touches[0].clientX);
+  };
+  
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX === null) return;
+    
+    const touchEndX = e.changedTouches[0].clientX;
+    const diff = touchEndX - touchStartX;
+    
+    // If the touch movement is significant enough (more than 50px)
+    if (Math.abs(diff) > 50) {
+      if (diff > 0) {
+        // Swipe right
+        goToPrevPage();
+      } else {
+        // Swipe left
+        goToNextPage();
+      }
+    }
+    
+    setTouchStartX(null);
+  };
+  
+  // Function to retry loading on error
+  const handleRetry = () => {
+    setIsLoading(true);
+    setError(null);
+    initializeReader();
+  };
+
   return (
     <div 
       className="flex flex-col w-full"
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >
-      <div className="bg-secondary/20 rounded-lg p-4 mb-6 w-full">
+      <div className="bg-background rounded-lg w-full">
         <div className="flex justify-between items-center mb-4">
           <BookIcon className="h-6 w-6 text-primary" />
           <h3 className="text-lg font-medium flex-grow text-center">{title}</h3>
-          <a 
-            href={url}
-            className="text-primary hover:underline text-sm"
-            download={title}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Download
-          </a>
         </div>
         
         {isLoading ? (
-          <div className="flex justify-center items-center h-[70vh]">
+          <div className="flex justify-center items-center h-[80vh]">
             <div className="animate-pulse text-center">
               <div className="h-8 w-8 rounded-full border-4 border-t-primary border-primary/30 animate-spin mx-auto mb-4"></div>
               <p className="text-muted-foreground">Loading EPUB book...</p>
+              <p className="text-xs text-muted-foreground mt-2">This may take a moment for large books</p>
+            </div>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col justify-center items-center h-[80vh]">
+            <div className="text-center max-w-md">
+              <BookIcon className="h-12 w-12 text-destructive mx-auto mb-4 opacity-80" />
+              <h3 className="text-lg font-medium mb-2">Error Loading Book</h3>
+              <p className="text-muted-foreground mb-6">{error}</p>
+              <div className="flex space-x-4 justify-center">
+                <button
+                  onClick={handleRetry}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md"
+                >
+                  Try Again
+                </button>
+              </div>
             </div>
           </div>
         ) : (
           <>
+            <div className="flex justify-center items-center gap-2 mb-2">
+              <button
+                onClick={() => changeFontSize(-10)}
+                className="p-1.5 rounded hover:bg-secondary transition-colors text-muted-foreground"
+                aria-label="Decrease font size"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <button
+                onClick={resetFontSize}
+                className="p-1.5 rounded hover:bg-secondary transition-colors text-muted-foreground"
+                aria-label="Reset font size"
+              >
+                <RotateCcw className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => changeFontSize(10)}
+                className="p-1.5 rounded hover:bg-secondary transition-colors text-muted-foreground"
+                aria-label="Increase font size"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <span className="text-xs text-muted-foreground">{fontSize}%</span>
+            </div>
+            
             <div 
               ref={viewerRef} 
-              className="w-full h-[70vh] border rounded-lg bg-white dark:bg-zinc-900"
+              className="w-full h-[80vh] border rounded-lg bg-white dark:bg-zinc-900"
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
             />
             
             <div className="flex justify-between items-center mt-4">
@@ -202,7 +368,14 @@ const EpubReader = ({ url, title }: { url: string, title: string }) => {
               </button>
               
               <div className="text-sm text-muted-foreground">
-                Page {currentPage + 1} of {totalPages}
+                {loadingLocations ? (
+                  <span className="flex items-center">
+                    <div className="h-3 w-3 rounded-full border-2 border-t-primary border-primary/30 animate-spin mr-2"></div>
+                    Calculating pages...
+                  </span>
+                ) : (
+                  <span>Page {currentPage + 1} of {totalPages || '?'}</span>
+                )}
               </div>
               
               <button
@@ -212,6 +385,12 @@ const EpubReader = ({ url, title }: { url: string, title: string }) => {
               >
                 <ChevronRight className="h-5 w-5" />
               </button>
+            </div>
+            
+            <div className="mt-3 text-xs text-center text-muted-foreground">
+              <p>
+                Keyboard shortcuts: Arrow keys to navigate, + and - to adjust font size, 0 to reset font size
+              </p>
             </div>
           </>
         )}
@@ -225,13 +404,14 @@ const FileViewer = ({ article }: { article: Article }) => {
   if (article.source === 'PDF') {
     return (
       <div className="w-full h-full flex flex-col items-center">
-        <div className="bg-secondary/20 rounded-lg p-4 mb-6 w-full text-center">
-          <FileIconLucide className="h-10 w-10 mx-auto mb-2 text-primary" />
-          <h3 className="text-lg font-medium mb-2">PDF File</h3>
-          <p className="text-muted-foreground mb-4">You're viewing a PDF file that was uploaded.</p>
+        <div className="bg-background w-full text-center">
+          <div className="flex justify-between items-center mb-4">
+            <FileIconLucide className="h-6 w-6 text-primary" />
+            <h3 className="text-lg font-medium flex-grow text-center">{article.title}</h3>
+          </div>
           <iframe 
             src={article.url} 
-            className="w-full h-[75vh] border rounded-lg"
+            className="w-full h-[80vh] border rounded-lg"
             title={article.title}
           />
         </div>
@@ -241,34 +421,40 @@ const FileViewer = ({ article }: { article: Article }) => {
     // Use the new EPUB reader component
     return <EpubReader url={article.url} title={article.title} />;
   } else if (article.source === 'Text' || article.source === 'Note') {
-    // For text files, we can display the content directly
+    // For text files, we can display the content directly in a full-page reader format
     return (
-      <div className="prose prose-lg prose-slate max-w-none">
-        <pre className="whitespace-pre-wrap overflow-x-auto p-4 bg-secondary/20 rounded-lg">
-          {article.content}
-        </pre>
+      <div className="w-full">
+        <div className="bg-background w-full">
+          <div className="flex justify-between items-center mb-4">
+            <FileIconLucide className="h-6 w-6 text-primary" />
+            <h3 className="text-lg font-medium flex-grow text-center">{article.title}</h3>
+          </div>
+          <div className="prose prose-lg prose-slate max-w-none dark:prose-invert bg-white dark:bg-zinc-900 p-8 rounded-lg min-h-[80vh]">
+            {!article.content ? (
+              <div className="flex justify-center items-center h-[70vh]">
+                <div className="animate-pulse text-center">
+                  <div className="h-8 w-8 rounded-full border-4 border-t-primary border-primary/30 animate-spin mx-auto mb-4"></div>
+                  <p className="text-muted-foreground">Loading content...</p>
+                </div>
+              </div>
+            ) : (
+              <pre className="whitespace-pre-wrap overflow-x-auto">{article.content}</pre>
+            )}
+          </div>
+        </div>
       </div>
     );
   } else if (article.source === 'Web') {
     // For web content or any other type, use the standard article display
     return null;
   } else {
-    // Unknown file type - provide download link
+    // Unknown file type - simplified view without download
     return (
       <div className="w-full h-full flex flex-col items-center">
-        <div className="bg-secondary/20 rounded-lg p-4 mb-6 w-full text-center">
+        <div className="bg-background w-full text-center">
           <FileIconLucide className="h-10 w-10 mx-auto mb-2 text-primary" />
           <h3 className="text-lg font-medium mb-2">{article.source} File</h3>
           <p className="text-muted-foreground mb-4">This file type may not be viewable in the browser.</p>
-          <a 
-            href={article.url}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md inline-block"
-            download={article.title}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Download File
-          </a>
         </div>
       </div>
     );
@@ -284,6 +470,7 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
   const [activeHighlight, setActiveHighlight] = useState<Highlight | null>(null);
   const [showNoteDialog, setShowNoteDialog] = useState(false);
   const [showTagDialog, setShowTagDialog] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   // Show highlighting only for Web content
   const supportsHighlighting = article.source === 'Web' || article.source === 'Text' || article.source === 'Note';
@@ -510,10 +697,15 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
     }
   }, [saved, article, onUpdateArticle]);
 
+  // Toggle fullscreen mode
+  const toggleFullscreen = useCallback(() => {
+    setIsFullscreen(!isFullscreen);
+  }, [isFullscreen]);
+
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Reader Header */}
-      <div className="sticky top-0 z-40 glass backdrop-blur-md border-b">
+      {/* Reader Header - minimalist design similar to Readwise */}
+      <div className={`sticky top-0 z-40 glass backdrop-blur-md border-b transition-opacity duration-200 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}>
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <Link to="/" className="flex items-center text-sm font-medium p-1 -ml-1 rounded-md hover:bg-secondary transition-colors">
             <ArrowLeft className="h-4 w-4 mr-1.5" />
@@ -524,32 +716,26 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
             <button 
               className="p-2 rounded-full hover:bg-secondary transition-colors"
               onClick={() => setSaved(!saved)}
+              title={saved ? "Saved" : "Save"}
             >
               <Bookmark className={`h-5 w-5 ${saved ? 'fill-current' : ''}`} />
             </button>
-            {supportsHighlighting && (
-              <button 
-                className="p-2 rounded-full hover:bg-secondary transition-colors"
-                onClick={exportHighlights}
-                title="Export highlights"
-              >
-                <Download className="h-5 w-5" />
-              </button>
-            )}
-            <button className="p-2 rounded-full hover:bg-secondary transition-colors">
-              <Share2 className="h-5 w-5" />
-            </button>
-            <button className="p-2 rounded-full hover:bg-secondary transition-colors">
-              <MoreHorizontal className="h-5 w-5" />
+            <button 
+              className="p-2 rounded-full hover:bg-secondary transition-colors"
+              onClick={toggleFullscreen}
+              title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            >
+              {isFullscreen ? <ChevronLeftSquare className="h-5 w-5" /> : <ChevronRightSquare className="h-5 w-5" />}
             </button>
           </div>
         </div>
       </div>
       
-      {/* Article Content */}
-      <div className="flex-1 pb-20">
-        <div className="max-w-2xl mx-auto px-4 pt-8 pb-16">
-          <div className="mb-6">
+      {/* Article Content - Full-page reading experience */}
+      <div className={`flex-1 pb-10 pt-4 ${isFullscreen ? 'pt-0' : ''}`}>
+        <div className={`max-w-4xl mx-auto px-4 transition-all duration-200 ${isFullscreen ? 'max-w-6xl' : ''}`}>
+          {/* Title and metadata */}
+          <div className={`mb-6 transition-opacity duration-200 ${isFullscreen ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'}`}>
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight mb-3 text-balance">
               {article.title}
             </h1>
@@ -587,7 +773,7 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
           {(article.source === 'Web' || (article.source !== 'PDF' && article.source !== 'Book' && article.source !== 'Text' && article.source !== 'Note')) && (
             <div 
               ref={contentRef}
-              className="reader-content prose prose-lg prose-slate max-w-none"
+              className="reader-content prose prose-lg prose-slate max-w-none dark:prose-invert"
               onMouseUp={handleHighlight}
               dangerouslySetInnerHTML={{ __html: article.content }}
             />

@@ -23,83 +23,52 @@ const mimeTypeMap: Record<string, string> = {
 };
 
 /**
- * Detects the file type based on file extension and MIME type
+ * Efficiently detects the file type based on file extension and MIME type
  */
 export function detectFileType(file: File): string | null {
-  try {
-    console.log('Detecting file type for:', file.name, 'MIME type:', file.type);
-    
-    // First try by file extension
-    const filename = file.name.trim();
-    const lastDotIndex = filename.lastIndexOf('.');
-    
-    if (lastDotIndex !== -1) {
-      const extension = filename.slice(lastDotIndex + 1).toLowerCase();
-      console.log('File extension:', extension);
-      
-      const fileTypeByExtension = fileExtensionMap[extension];
-      if (fileTypeByExtension) {
-        console.log('Detected file type by extension:', fileTypeByExtension);
-        return fileTypeByExtension;
-      }
-      console.log('Extension not recognized:', extension);
-    } else {
-      console.log('No file extension found');
-    }
-    
-    // If extension doesn't work, try by MIME type
-    if (file.type) {
-      const fileTypeByMime = mimeTypeMap[file.type];
-      if (fileTypeByMime) {
-        console.log('Detected file type by MIME type:', fileTypeByMime);
-        return fileTypeByMime;
-      }
-      console.log('MIME type not recognized:', file.type);
-    } else {
-      console.log('No MIME type available');
-    }
-    
-    // Special case for common file types that might have incorrect MIME types
-    if (file.type.includes('pdf')) {
-      console.log('Special case: PDF detected by MIME type substring');
-      return 'PDF';
-    }
-    
-    if (file.type.includes('epub')) {
-      console.log('Special case: EPUB detected by MIME type substring');
-      return 'Book';
-    }
-    
-    console.log('Could not detect file type');
-    return null;
-  } catch (error) {
-    console.error('Error detecting file type:', error);
-    return null;
+  // First try by file extension (faster)
+  const filename = file.name.trim();
+  const lastDotIndex = filename.lastIndexOf('.');
+  
+  if (lastDotIndex !== -1) {
+    const extension = filename.slice(lastDotIndex + 1).toLowerCase();
+    const fileTypeByExtension = fileExtensionMap[extension];
+    if (fileTypeByExtension) return fileTypeByExtension;
   }
+  
+  // Try by MIME type if extension doesn't work
+  if (file.type) {
+    const fileTypeByMime = mimeTypeMap[file.type];
+    if (fileTypeByMime) return fileTypeByMime;
+    
+    // Special case checks for partial matches
+    if (file.type.includes('pdf')) return 'PDF';
+    if (file.type.includes('epub')) return 'Book';
+  }
+  
+  return null;
 }
 
 /**
  * Process an uploaded file and create an Article from it
  */
-export async function processUploadedFile(file: File): Promise<{ status: 'success' | 'error'; message: string; article?: Article }> {
+export async function processUploadedFile(file: File): Promise<{ status: 'success' | 'error'; message: string; article?: Article; readerId?: string }> {
   try {
-    console.log('Processing file:', file.name, 'type:', file.type, 'size:', file.size);
-    
-    // Check if file is empty
+    // Early validations - fail fast
     if (file.size === 0) {
       return { status: 'error', message: 'File is empty.' };
     }
     
-    // Check file size (limit to 50MB)
-    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+    // Check file size (limit to 800MB)
+    const MAX_FILE_SIZE = 800 * 1024 * 1024; // 800MB
     if (file.size > MAX_FILE_SIZE) {
-      return { status: 'error', message: 'File too large. Maximum size is 50MB.' };
+      return { status: 'error', message: 'File too large. Maximum size is 800MB.' };
     }
     
-    // Detect file type
+    // Detect file type with optimized function
     const fileType = detectFileType(file);
     if (!fileType) {
-      // More specific error message
+      // Generate specific error message
       let errorMessage = 'Unsupported file type. ';
       
       if (file.name.lastIndexOf('.') === -1) {
@@ -113,64 +82,90 @@ export async function processUploadedFile(file: File): Promise<{ status: 'succes
       return { status: 'error', message: errorMessage };
     }
     
-    // Create a blob URL for the file
+    // Create a blob URL for the file - needed for binary files
     const fileUrl = URL.createObjectURL(file);
-    console.log('Created blob URL:', fileUrl);
     
-    // For text files, read the content
-    let content = '';
-    try {
-      if (fileType === 'Text' || fileType === 'Note' || fileType === 'Web') {
-        content = await file.text();
-      } else {
-        // For binary files like PDF, EPUB
-        content = `[This is a ${fileType} file that was uploaded]`;
-      }
-    } catch (error) {
-      console.error('Error reading file content:', error);
-      content = 'Error reading file content';
-    }
+    // Generate a unique ID for this article
+    const articleId = uuidv4();
     
-    // Create excerpt from content
-    const excerpt = content.slice(0, 150) + (content.length > 150 ? '...' : '');
-    
-    // Get current timestamp
-    const now = new Date().toISOString();
-    
-    // Create a new article
+    // Create the article immediately with minimal content for fast navigation
+    // Content will be loaded asynchronously in the reader component
     const article: Article = {
-      id: uuidv4(),
+      id: articleId,
       title: file.name.replace(/\.[^/.]+$/, ''), // Remove file extension
       author: 'Uploaded by user',
       url: fileUrl,
       source: fileType,
-      content: content,
-      excerpt: excerpt,
-      date: now,
-      readingTime: Math.max(1, Math.ceil(content.length / 1000)), // Estimate reading time
+      content: '', // Will be loaded later
+      excerpt: `Loading ${fileType} content...`,
+      date: new Date().toISOString(),
+      readingTime: Math.ceil(file.size / (100 * 1024)), // Rough estimate based on file size
       saved: true,
       read: false,
       highlights: [],
       tags: ['Uploaded'],
-      createdAt: now
+      createdAt: new Date().toISOString()
     };
-    
-    console.log('Created article:', article.id, article.title);
     
     // Add the article using the update function
     updateArticle(article);
-    console.log('Article added to library');
+    
+    // Start loading content in the background
+    loadContentInBackground(file, fileType, articleId);
     
     return {
       status: 'success',
       message: `${fileType} file uploaded successfully.`,
       article,
+      readerId: articleId // Return the article ID for immediate navigation
     };
   } catch (error) {
-    console.error('Error processing file:', error);
     return {
       status: 'error',
       message: error instanceof Error ? error.message : 'An unknown error occurred while processing the file.',
     };
+  }
+}
+
+/**
+ * Load content in background after navigation to reader
+ * This allows the user to see the reader UI immediately while content loads
+ */
+async function loadContentInBackground(file: File, fileType: string, articleId: string): Promise<void> {
+  try {
+    // For text files, read the content
+    let content = '';
+    
+    if (fileType === 'Text' || fileType === 'Note' || fileType === 'Web') {
+      // Limit content reading to a reasonable size
+      const MAX_TEXT_SIZE = 1 * 1024 * 1024; // 1MB
+      if (file.size > MAX_TEXT_SIZE) {
+        content = `[Large ${fileType} file - content preview not available]`;
+      } else {
+        content = await file.text();
+      }
+    } else {
+      // For binary files like PDF, EPUB
+      content = `[This is a ${fileType} file that was uploaded]`;
+    }
+    
+    // Create excerpt from content
+    const excerpt = content.length > 150 ? content.slice(0, 150) + '...' : content;
+    
+    // Get the existing article and update it with the content
+    const existingArticle = await import('@/utils/mockData').then(m => m.getArticleById(articleId));
+    
+    if (existingArticle) {
+      const updatedArticle: Article = {
+        ...existingArticle,
+        content,
+        excerpt
+      };
+      
+      // Update the article with content
+      updateArticle(updatedArticle);
+    }
+  } catch (error) {
+    console.error('Error loading content in background:', error);
   }
 } 
