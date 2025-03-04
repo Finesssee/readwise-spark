@@ -469,7 +469,13 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
   }, [rendition, article.highlights]);
   
   return (
-    <div className="fixed inset-0 bg-gray-900 text-white flex flex-col h-screen">
+    <div className={`
+      fixed inset-0 
+      bg-gray-900 text-white 
+      flex flex-col h-screen
+      pt-16
+      ${isFullscreen ? 'z-50' : ''}
+    `}>
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar - TOC */}
         <div className="w-[250px] border-r border-gray-800 flex flex-col bg-gray-900 overflow-hidden">

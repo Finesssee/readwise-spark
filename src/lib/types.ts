@@ -3,21 +3,25 @@ export interface Article {
   title: string;
   source: string;
   author?: string;
-  url: string;
-  date: string;
+  url?: string;
+  date?: string;
   content: string;
-  excerpt: string;
-  readingTime: number;
+  excerpt?: string;
+  readingTime?: number;
   imageUrl?: string;
-  saved: boolean;
-  read: boolean;
-  highlights: Highlight[];
+  saved?: boolean;
+  read?: boolean;
+  highlights?: Highlight[];
   tags?: string[];
-  createdAt: string;
+  createdAt: string | number;
   readAt?: string;
   pageCount?: number;
   tableOfContents?: TableOfContentsItem[];
   metadata?: DocumentMetadata;
+  fileSize?: number;
+  status?: 'processing' | 'ready' | 'error';
+  progress?: number;
+  errorMessage?: string;
 }
 
 export interface TableOfContentsItem {
@@ -40,9 +44,10 @@ export interface DocumentMetadata {
 }
 
 export interface FileProcessingOptions {
-  extractText?: boolean; // For OCR or text extraction from PDFs
+  extractText?: boolean;
   generateThumbnails?: boolean;
-  textViewMode?: boolean; // For reflowed text view of PDFs
+  textViewMode?: boolean;
+  articleId?: string;
 }
 
 export interface Highlight {
@@ -53,16 +58,14 @@ export interface Highlight {
   note?: string;
   tags?: string[];
   createdAt: string;
-  // For PDF specific highlighting
   pageNumber?: number;
   position?: {
     boundingRect: DOMRect;
     rects: DOMRect[];
   };
-  // For EPUB specific highlighting
   cfi?: string;
 }
 
 export type ArticleView = 'list' | 'grid';
 
-export type ReaderViewMode = 'original' | 'text'; // original = PDF/EPUB layout, text = simplified text view
+export type ReaderViewMode = 'original' | 'text';

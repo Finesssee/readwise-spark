@@ -64,11 +64,17 @@ const FileUploadModal: React.FC<FileUploadModalProps> = React.memo(({ isOpen, on
 
   // Process the files
   const handleFiles = useCallback(async (files: FileList) => {
+    // PERFORMANCE OPTIMIZATION: Immediately acknowledge user action
     // Reset states
     setIsUploading(true);
-    setUploadStatus({message: 'Validating file...', type: 'info'});
+    setUploadStatus({message: 'Preparing file...', type: 'info'});
+    
+    // PERFORMANCE OPTIMIZATION: Use a small delay to allow UI to update first
+    // This makes the app feel more responsive
+    await new Promise(resolve => setTimeout(resolve, 10));
     
     try {
+      // PERFORMANCE OPTIMIZATION: Process one file at a time for better feedback
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         
@@ -87,49 +93,94 @@ const FileUploadModal: React.FC<FileUploadModalProps> = React.memo(({ isOpen, on
         
         // Show more granular processing feedback
         setTotalBytes(file.size);
-        setUploadStatus({message: 'Processing file...', type: 'info'});
+        setBytesProcessed(0); // Reset progress for this file
+        setUploadStatus({message: 'Preparing file...', type: 'info'});
         
-        // Update progress simulation for better UX (makes it feel faster)
-        const updateProgress = () => {
-          if (!isUploading) return;
+        // PERFORMANCE OPTIMIZATION: Improved progress simulation
+        // More responsive progress updates that don't block the main thread
+        let isCancelled = false;
+        const progressInterval = setInterval(() => {
+          if (isCancelled) {
+            clearInterval(progressInterval);
+            return;
+          }
+          
           setBytesProcessed(prev => {
-            const increment = Math.min(file.size * 0.1, file.size - prev);
-            const newValue = prev + increment;
-            if (newValue < file.size) {
-              setTimeout(updateProgress, 100);
-            }
-            return newValue;
+            // Gradual acceleration to 90%
+            const remaining = file.size - prev;
+            if (remaining <= 0) return prev;
+            
+            const increment = Math.min(
+              Math.max(remaining * 0.1, 1024), // At least 1KB, at most 10% of remaining
+              remaining * 0.2 // Don't go past 90% total
+            );
+            
+            return Math.min(prev + increment, file.size * 0.9); // Cap at 90%
           });
-        };
+        }, 100);
         
-        // Start progress updates
-        updateProgress();
-        
-        // Process this file - optimized for faster navigation to reader
-        const result = await processUploadedFile(file);
-        
-        // Update status
-        setUploadStatus({
-          message: result.status === 'success' ? 'Opening file...' : result.message,
-          type: result.status === 'success' ? 'success' : 'error'
+        // PERFORMANCE OPTIMIZATION: Use non-blocking processing
+        // Start file processing (doesn't wait for background tasks)
+        const processingPromise = processUploadedFile(file).catch(error => {
+          console.error('Error processing file:', error);
+          return {
+            status: 'error' as const,
+            message: error instanceof Error ? error.message : 'An unknown error occurred' 
+          };
         });
         
-        // Complete progress
+        // PERFORMANCE OPTIMIZATION: Set a timeout to ensure we don't wait forever
+        // This creates a race between processing and a timeout
+        const timeoutPromise = new Promise<{
+          status: 'error';
+          message: string;
+        }>((resolve) => {
+          setTimeout(() => {
+            resolve({
+              status: 'error',
+              message: 'Processing is taking longer than expected, but continues in the background.'
+            });
+          }, 5000); // 5 second timeout for better responsiveness
+        });
+        
+        // Race between processing and timeout
+        const result = await Promise.race([processingPromise, timeoutPromise]);
+        
+        // Stop progress simulation
+        isCancelled = true;
+        clearInterval(progressInterval);
+        
+        // Set progress to 100% to indicate completion
         setBytesProcessed(file.size);
+        
+        // Update status
+        const statusMessage = result.status === 'success' 
+          ? 'Opening file...' 
+          : result.message;
+          
+        setUploadStatus({
+          message: statusMessage,
+          type: result.status === 'success' ? 'success' : 'error'
+        });
         
         // Show toast notification
         addToast({
           title: result.status === 'success' ? 'Upload Success' : 'Upload Failed',
-          description: result.status === 'success' ? 'Opening file...' : result.message,
+          description: statusMessage,
           type: result.status === 'success' ? 'success' : 'error'
         });
         
-        // If successful, close immediately and navigate to reader view
+        // If successful, navigate to the reader view
         if (result.status === 'success' && result.readerId) {
+          // Close modal before navigation
           onClose();
           
-          // Immediately navigate to the reader view with the new article ID
+          // PERFORMANCE OPTIMIZATION: Small delay for modal closing animation
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+          // Navigate to reader view
           navigate(`/reader/${result.readerId}`);
+          return; // Exit after navigation
         }
       }
     } catch (error) {

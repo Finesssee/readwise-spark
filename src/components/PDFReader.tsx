@@ -303,7 +303,7 @@ const PDFReader: React.FC<PDFReaderProps> = ({ article, onUpdateArticle }) => {
   }, []);
   
   return (
-    <div className="fixed inset-0 bg-gray-900 text-white flex flex-col h-screen">
+    <div className="fixed inset-0 bg-gray-900 text-white flex flex-col h-screen pt-16">
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar - Thumbnails */}
         <div className="w-[120px] border-r border-gray-800 flex flex-col bg-gray-900">
