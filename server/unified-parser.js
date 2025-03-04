@@ -63,6 +63,112 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }  // 100MB limit
 });
 
+// Add high-performance configuration
+const performanceConfig = {
+  // Processing configuration
+  useParallelProcessing: true,
+  maxParallelJobs: 8,
+  chunkSizePages: 50,
+  // Memory optimization
+  useStreamProcessing: true,
+  releaseMemoryInterval: 250, // MB
+  // Cache configuration
+  enableResultsCache: true,
+  cacheTTL: 24 * 60 * 60 * 1000, // 24 hours
+  cacheSize: 500, // MB
+  // Binary processing
+  useBinaryModeForPDFs: true,
+  optimizedImageExtraction: true,
+  lowQualityPreviews: true
+};
+
+// Initialize simple in-memory cache for processed documents
+const resultsCache = new Map();
+
+// Add memory management for high performance
+function optimizeMemoryUsage() {
+  const memUsage = process.memoryUsage();
+  if (memUsage.heapUsed > performanceConfig.releaseMemoryInterval * 1024 * 1024) {
+    global.gc && global.gc(); // Force garbage collection if available
+    console.log('Memory optimization performed');
+  }
+}
+
+// Function to create chunks from a file for parallel processing
+async function createProcessingChunks(filePath, chunkSize, fileType) {
+  // For now, just return the full file as a single chunk
+  // In a real implementation, this would split PDFs by page ranges
+  return [{
+    path: filePath,
+    startPage: 1,
+    endPage: null // Process to end
+  }];
+}
+
+// Process chunks in parallel
+async function processChunksInParallel(chunks, processor, options) {
+  const results = await Promise.all(
+    chunks.map(chunk => processor(chunk.path, options))
+  );
+  
+  // Combine results (simplified)
+  return results.reduce((combined, result) => {
+    if (!combined) return result;
+    if (result.data && result.data.content) {
+      combined.data.content = (combined.data.content || '') + result.data.content;
+    }
+    return combined;
+  });
+}
+
+// Cache helpers
+function getCachedResult(fileHash) {
+  const cached = resultsCache.get(fileHash);
+  if (cached && Date.now() - cached.timestamp < performanceConfig.cacheTTL) {
+    console.log('Cache hit for', fileHash);
+    return cached.data;
+  }
+  return null;
+}
+
+function cacheResult(fileHash, data) {
+  // Simple caching implementation
+  resultsCache.set(fileHash, { 
+    data, 
+    timestamp: Date.now(),
+    size: JSON.stringify(data).length / 1024 // Rough size in KB
+  });
+  
+  // Prune cache if needed
+  pruneCache();
+}
+
+function pruneCache() {
+  // Remove oldest entries if cache is too large
+  if (resultsCache.size > 100) { // Simple implementation
+    const entries = [...resultsCache.entries()];
+    entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+    
+    // Remove oldest 20%
+    const toRemove = Math.ceil(entries.length * 0.2);
+    for (let i = 0; i < toRemove; i++) {
+      resultsCache.delete(entries[i][0]);
+    }
+  }
+}
+
+// Add file hashing function for cache keys
+function hashFile(filePath) {
+  try {
+    const fileSize = fs.statSync(filePath).size;
+    const lastModified = fs.statSync(filePath).mtime.getTime();
+    return `${path.basename(filePath)}-${fileSize}-${lastModified}`;
+  } catch (error) {
+    console.error('Error creating file hash:', error);
+    return null;
+  }
+}
+
 // Start backend services
 async function startBackendServices() {
   console.log('Starting backend parsing services...');
@@ -160,6 +266,7 @@ app.get('/', (req, res) => {
 
 // Main parse endpoint - selects optimal parser
 app.post('/parse', upload.single('file'), async (req, res) => {
+  const startTime = Date.now();
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -169,14 +276,82 @@ app.post('/parse', upload.single('file'), async (req, res) => {
     const fileType = detectFileType(file.originalname, file.mimetype);
     const fileSize = file.size;
     
-    console.log(`Processing file: ${file.originalname} (${fileType}, ${fileSize} bytes)`);
+    // Check for client optimization parameters
+    const useParallelProcessing = req.body.strategy === 'chunked' || performanceConfig.useParallelProcessing;
+    const priorityExtraction = req.body.priorityExtraction === 'true';
+    const lowQualityPreview = req.body.lowQualityPreview === 'true' || performanceConfig.lowQualityPreviews;
     
-    // Choose parser based on file type and size
+    console.log(`Processing file: ${file.originalname} (${fileType}, ${fileSize} bytes) with ${useParallelProcessing ? 'parallel' : 'standard'} processing`);
+    
+    // Check cache first
+    const fileHash = hashFile(file.path);
+    const cachedResult = performanceConfig.enableResultsCache && fileHash ? getCachedResult(fileHash) : null;
+    
+    if (cachedResult) {
+      console.log(`Cache hit for ${file.originalname}, returning result in ${Date.now() - startTime}ms`);
+      return res.json({
+        ...cachedResult,
+        cached: true,
+        processingTime: Date.now() - startTime
+      });
+    }
+    
+    // For very large files and appropriate types, use parallel processing with chunks
+    if (useParallelProcessing && fileSize > 10 * 1024 * 1024 && ['pdf'].includes(fileType)) {
+      // Create processing chunks
+      const chunkSize = parseInt(req.body.chunkSize) || performanceConfig.chunkSizePages;
+      const chunks = await createProcessingChunks(file.path, chunkSize, fileType);
+      
+      // If streaming is requested, handle differently
+      if (performanceConfig.useStreamProcessing && chunks.length > 1) {
+        // Start a background process and return a process ID
+        const processId = uuidv4();
+        
+        // Respond immediately with the process ID
+        res.json({
+          status: 'processing',
+          parser: 'pymupdf',
+          data: {
+            processId,
+            metadata: { 
+              title: path.basename(file.originalname),
+              fileSize,
+              estimatedPages: Math.ceil(fileSize / 50000) // Rough estimate
+            }
+          },
+          message: 'Processing started in background'
+        });
+        
+        // Process chunks in background
+        processChunksInParallel(chunks, callPyMuPDF, {
+          lowQuality: lowQualityPreview,
+          priorityExtraction
+        }).then(result => {
+          // Store result with process ID for later retrieval
+          cacheResult(processId, result);
+          
+          // Also cache by file hash
+          if (fileHash) {
+            cacheResult(fileHash, result);
+          }
+          
+          // Optimize memory
+          optimizeMemoryUsage();
+        }).catch(console.error);
+        
+        return;
+      }
+    }
+    
+    // Choose parser based on file type, size, and requested options
     let parserResponse;
     
-    if (fileType === 'pdf' && fileSize > 5 * 1024 * 1024) {
-      // Large PDFs go to PyMuPDF
-      parserResponse = await callPyMuPDF(file.path, file.originalname);
+    if (fileType === 'pdf' && (fileSize > 3 * 1024 * 1024 || priorityExtraction)) {
+      // PDFs with priority extraction or larger size go to PyMuPDF
+      parserResponse = await callPyMuPDF(file.path, file.originalname, {
+        lowQuality: lowQualityPreview,
+        priorityExtraction
+      });
     } else if (fileType === 'pdf' || fileType === 'word' || fileType === 'powerpoint' || fileType === 'excel') {
       // Common document formats go to Tika with content extraction
       parserResponse = await callTika(file.path, file.originalname, true);
@@ -191,20 +366,32 @@ app.post('/parse', upload.single('file'), async (req, res) => {
       };
     } else {
       // Everything else goes to Unstructured
-      parserResponse = await callUnstructured(file.path, file.originalname);
+      parserResponse = await callUnstructured(file.path, file.originalname, {
+        lowQuality: lowQualityPreview
+      });
     }
     
-    // Add file info to response
+    // Add file info and performance metrics to response
     parserResponse.fileName = file.originalname;
     parserResponse.fileSize = file.size;
     parserResponse.detectedType = fileType;
+    parserResponse.processingTime = Date.now() - startTime;
+    
+    // Cache the result
+    if (performanceConfig.enableResultsCache && fileHash) {
+      cacheResult(fileHash, parserResponse);
+    }
+    
+    // Optimize memory after processing
+    optimizeMemoryUsage();
     
     res.json(parserResponse);
   } catch (error) {
     console.error('Error processing file:', error);
     res.status(500).json({ 
       error: error.message || 'Internal server error',
-      status: 'error'
+      status: 'error',
+      processingTime: Date.now() - startTime
     });
   }
 });

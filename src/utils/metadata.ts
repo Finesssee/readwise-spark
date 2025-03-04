@@ -3,6 +3,39 @@ import { updateArticle } from '@/utils/mockData';
 import * as PDFJS from 'pdfjs-dist';
 import { Book } from 'epubjs';
 
+// PDF related interfaces
+interface PDFOutlineItem {
+  title: string;
+  dest?: string | string[];
+  items?: PDFOutlineItem[];
+  [key: string]: unknown;
+}
+
+interface PDFTableOfContentsItem {
+  title: string;
+  page: number;
+  level: number;
+}
+
+// EPUB related interfaces
+interface EPUBTocItem {
+  label?: string;
+  href?: string;
+  level?: number;
+  subitems?: EPUBTocItem[];
+}
+
+// Type for metadata with additional fields we handle
+interface ArticleWithMetadata extends Partial<Article> {
+  id?: string;
+  imageUrl?: string;
+  tableOfContents?: Array<{
+    title: string;
+    href?: string;
+    level: number;
+  }>;
+}
+
 /**
  * Extract metadata from a PDF file
  */
@@ -18,20 +51,20 @@ export async function extractPDFMetadata(file: File): Promise<Partial<Article>> 
     const pageCount = pdf.numPages;
     
     // Safely access metadata properties
-    const info = metadata?.info as Record<string, any> || {};
+    const info = metadata?.info as Record<string, unknown> || {};
     
     // PERFORMANCE OPTIMIZATION: Minimal required processing for fast response
     const basicMetadata: Partial<Article> = {
-      title: info.Title || file.name.replace(/\.[^/.]+$/, ''),
-      author: info.Author || 'Unknown Author',
+      title: typeof info.Title === 'string' ? info.Title : file.name.replace(/\.[^/.]+$/, ''),
+      author: typeof info.Author === 'string' ? info.Author : 'Unknown Author',
       pageCount: pageCount,
       readingTime: Math.max(1, Math.round(pageCount * 2)), // Estimate based on page count
       metadata: {
-        creator: info.Creator || 'Unknown',
-        producer: info.Producer || 'Unknown',
-        creationDate: info.CreationDate || 'Unknown',
-        modificationDate: info.ModDate || 'Unknown',
-        keywords: info.Keywords || '',
+        creator: typeof info.Creator === 'string' ? info.Creator : 'Unknown',
+        producer: typeof info.Producer === 'string' ? String(info.Producer || 'Unknown') : 'Unknown',
+        creationDate: typeof info.CreationDate === 'string' ? String(info.CreationDate || 'Unknown') : 'Unknown',
+        modificationDate: typeof info.ModDate === 'string' ? String(info.ModDate || 'Unknown') : 'Unknown',
+        keywords: typeof info.Keywords === 'string' ? String(info.Keywords || '') : '',
       }
     };
     
@@ -59,7 +92,7 @@ export async function extractPDFMetadata(file: File): Promise<Partial<Article>> 
  * This keeps the initial metadata extraction fast
  */
 async function generatePDFThumbnailAndOutline(
-  pdf: any, 
+  pdf: PDFJS.PDFDocumentProxy, 
   metadata: Partial<Article>, 
   fallbackName: string
 ): Promise<void> {
@@ -84,10 +117,11 @@ async function generatePDFThumbnailAndOutline(
         const imageUrl = canvas.toDataURL('image/jpeg', 0.3);
         
         // Add thumbnail URL to metadata
-        (metadata as any).imageUrl = imageUrl;
+        const articleMetadata = metadata as ArticleWithMetadata;
+        articleMetadata.imageUrl = imageUrl;
         
         // Get any existing ID to update the article in storage
-        const id = (metadata as any).id;
+        const id = articleMetadata.id;
         if (id) {
           const { getArticleById, updateArticle } = await import('@/utils/mockData');
           const existingArticle = getArticleById(id);
@@ -104,16 +138,17 @@ async function generatePDFThumbnailAndOutline(
     // Extract outline/TOC and update if available
     const outline = await pdf.getOutline() || [];
     if (outline.length > 0) {
-      const tableOfContents = outline.map((item: any) => ({
+      const tableOfContents = outline.map((item: PDFOutlineItem) => ({
         title: item.title,
         page: 0, // Simplified - no destination resolution
         level: 0
       }));
       
       // Update tableOfContents in storage
-      (metadata as any).tableOfContents = tableOfContents;
+      const articleMetadata = metadata as ArticleWithMetadata;
+      articleMetadata.tableOfContents = tableOfContents;
       
-      const id = (metadata as any).id;
+      const id = articleMetadata.id;
       if (id) {
         const { getArticleById, updateArticle } = await import('@/utils/mockData');
         const existingArticle = getArticleById(id);
@@ -147,24 +182,26 @@ export async function extractEPUBMetadata(file: File): Promise<Partial<Article>>
     await book.ready;
     
     // Extract basic metadata first (fast operation)
-    const metadata = await book.loaded.metadata;
-    // Use type assertion to handle properties not in type definitions
-    const meta = metadata as any;
+    const metadataObj = await book.loaded.metadata;
+    // Safe type casting for metadata
+    const metadata: Record<string, unknown> = metadataObj ? 
+      (metadataObj as unknown as Record<string, unknown>) : {};
     const packageData = book.packaging;
     
     // Create initial metadata object with fast-to-access properties
     const initialMetadata: Partial<Article> = {
-      title: meta.title || file.name.replace(/\.[^/.]+$/, ''),
-      author: meta.creator || (meta.contributors ? meta.contributors.join(', ') : '') || '',
+      title: typeof metadata.title === 'string' ? metadata.title : file.name.replace(/\.[^/.]+$/, ''),
+      author: typeof metadata.creator === 'string' ? metadata.creator : 
+             (Array.isArray(metadata.contributors) ? (metadata.contributors as string[]).join(', ') : ''),
       pageCount: packageData?.spine?.length || 0,
       imageUrl: null, // Will be extracted asynchronously later
       // Add basic metadata
       metadata: {
-        creator: meta.creator || '',
-        publisher: meta.publisher || '',
-        language: meta.language || '',
-        pubdate: meta.pubdate || '',
-        rights: meta.rights || '',
+        creator: typeof metadata.creator === 'string' ? metadata.creator : '',
+        publisher: typeof metadata.publisher === 'string' ? metadata.publisher : '',
+        language: typeof metadata.language === 'string' ? metadata.language : '',
+        pubdate: typeof metadata.pubdate === 'string' ? metadata.pubdate : '',
+        rights: typeof metadata.rights === 'string' ? metadata.rights : '',
       }
     };
 
@@ -174,13 +211,19 @@ export async function extractEPUBMetadata(file: File): Promise<Partial<Article>>
     );
 
     // Get the cover image asynchronously - don't block main metadata return
-    // Use type assertion since cover is not in the type definitions
-    const bookAny = book as any;
-    if (bookAny.cover) {
-      const coverUrl = await bookAny.cover.then((url: string) => url);
-      if (coverUrl) {
-        initialMetadata.imageUrl = coverUrl;
+    try {
+      // Safe type casting for cover property access
+      type BookWithCover = Book & { cover?: Promise<string> };
+      const bookWithCover = book as BookWithCover;
+      
+      if (bookWithCover.cover) {
+        const coverUrl = await bookWithCover.cover;
+        if (coverUrl) {
+          initialMetadata.imageUrl = coverUrl;
+        }
       }
+    } catch (e) {
+      console.warn('Failed to get EPUB cover:', e);
     }
     
     // Start background processing of the rest of the book
@@ -220,35 +263,37 @@ async function processEPUBInBackground(
     
     // Process in chunks to avoid UI freeze
     // 1. Extract table of contents
-    let toc: any[] = [];
-    try {
-      const nav = await book.loaded.navigation;
-      if (nav?.toc) {
-        toc = nav.toc;
-      }
+    const tocObj = await book.loaded.navigation;
+    
+    // Type safety for TOC extraction
+    interface NavItem {
+      label?: string;
+      href?: string;
+      level?: number;
+      subitems?: NavItem[];
+    }
+    
+    const toc = tocObj?.toc as NavItem[] || [];
+    
+    // Create a structured TOC if available
+    if (toc?.length) {
+      const tableOfContents = toc.map((item: NavItem) => ({
+        title: item.label || 'Unnamed section',
+        href: item.href || '',
+        level: item.level || 0
+      })).filter(item => item.title);
       
-      // Create a structured TOC if available
-      if (toc?.length) {
-        const tableOfContents = toc.map((item: any) => ({
-          title: item.label || 'Unnamed section',
-          href: item.href || '',
-          level: item.level || 0
-        })).filter(item => item.title);
-        
-        // Update the article with TOC
-        const updatedMetadata = { ...metadata, tableOfContents };
-        await import('@/utils/mockData').then(m => {
-          const existingArticle = m.getArticleById(articleId);
-          if (existingArticle) {
-            updateArticle({
-              ...existingArticle,
-              ...updatedMetadata
-            });
-          }
-        });
-      }
-    } catch (err) {
-      console.warn('Error extracting EPUB TOC:', err);
+      // Update the article with TOC
+      const updatedMetadata = { ...metadata, tableOfContents };
+      await import('@/utils/mockData').then(m => {
+        const existingArticle = m.getArticleById(articleId);
+        if (existingArticle) {
+          updateArticle({
+            ...existingArticle,
+            ...updatedMetadata
+          });
+        }
+      });
     }
     
     await yieldToMain(); // Yield to main thread to avoid UI freeze
@@ -256,9 +301,21 @@ async function processEPUBInBackground(
     // 2. Generate a summary/excerpt if possible
     try {
       let excerpt = '';
+      
+      // Type safety for spine access
+      type BookWithSpine = Book & { 
+        spine: { 
+          items: Array<{ 
+            href?: string | undefined; 
+            [key: string]: unknown 
+          }> 
+        } 
+      };
+      
       // Get the first few paragraphs from the first chapter
-      // Use type assertion for spine since items is not in the type definitions
-      const spine = book.spine as any;
+      const bookWithSpine = book as unknown as BookWithSpine;
+      const spine = bookWithSpine.spine;
+      
       if (spine?.items?.length) {
         const firstItem = spine.items[0];
         // Convert href to string properly
@@ -267,7 +324,12 @@ async function processEPUBInBackground(
           const contents = await book.load(href);
           
           if (contents) {
-            const doc = new DOMParser().parseFromString(contents, 'text/html');
+            // Ensure contents is treated as a string
+            const contentString = typeof contents === 'string' 
+              ? contents 
+              : String(contents);
+              
+            const doc = new DOMParser().parseFromString(contentString, 'text/html');
             const paragraphs = doc.querySelectorAll('p');
             
             for (let i = 0; i < Math.min(3, paragraphs.length); i++) {
@@ -316,6 +378,17 @@ async function processEPUBInBackground(
       console.warn('Failed to revoke URL:', e);
     }
   }
+}
+
+function processTocItem(item: Record<string, unknown>, level = 0): unknown {
+  return {
+    title: typeof item.label === 'string' ? item.label : '',
+    level,
+    href: typeof item.href === 'string' ? item.href : '',
+    subitems: Array.isArray(item.subitems) ? 
+      (item.subitems as Record<string, unknown>[]).map(subitem => processTocItem(subitem, level + 1)) : 
+      []
+  };
 }
 
 /**

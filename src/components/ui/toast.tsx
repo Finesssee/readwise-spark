@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, Check, Info, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { 
+  ToastProps, 
+  ToastContext, 
+  ToastContextType, 
+  ToastProviderProps,
+  useToast
+} from '@/lib/contexts/toast';
 
-export interface ToastProps {
-  id: string;
-  title: string;
-  description?: string;
-  type?: 'success' | 'error' | 'info';
-  duration?: number;
-  onClose: (id: string) => void;
-}
+// Don't re-export the hook
+// export { useToast };
 
 export const Toast: React.FC<ToastProps> = ({
   id,
@@ -92,27 +93,7 @@ export const ToastContainer: React.FC<ToastContainerProps> = ({ children }) => {
   );
 };
 
-// Toast Context
-export interface ToastContextType {
-  addToast: (toast: Omit<ToastProps, 'id' | 'onClose'>) => void;
-  removeToast: (id: string) => void;
-}
-
-export const ToastContext = React.createContext<ToastContextType | undefined>(undefined);
-
-export const useToast = () => {
-  const context = React.useContext(ToastContext);
-  if (!context) {
-    throw new Error('useToast must be used within a ToastProvider');
-  }
-  return context;
-};
-
-// Toast Provider
-export interface ToastProviderProps {
-  children: React.ReactNode;
-}
-
+// Toast Provider 
 export const ToastProvider: React.FC<ToastProviderProps> = ({ children }) => {
   const [toasts, setToasts] = useState<ToastProps[]>([]);
 

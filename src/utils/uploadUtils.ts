@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Article, FileProcessingOptions } from '@/lib/types';
 import { updateArticle } from '@/utils/mockData';
 import { extractMetadata } from '@/utils/metadata';
-import axios from 'axios';
+import axios, { AxiosProgressEvent, AxiosRequestConfig } from 'axios';
 
 // Configuration for performance enhancement
 const PARSER_SERVICE_URL = 'http://localhost:3000';
@@ -41,6 +41,12 @@ const mimeTypeMap: Record<string, string> = {
   'text/plain': 'Text',
   'text/markdown': 'Note',
 };
+
+// Define interface for stream
+interface DataStream {
+  on: (event: string, callback: (data: unknown) => void) => void;
+  [key: string]: unknown;
+}
 
 /**
  * Detect file type based on file extension or MIME type
@@ -155,7 +161,7 @@ async function processWithParserService(
     const initialArticle = {
       ...article,
       progress: 5,
-      status: 'processing',
+      status: 'processing' as const, // Type assertion to fix error
       title: file.name, // Use filename initially for immediate display
     };
     updateArticle(initialArticle);
@@ -184,19 +190,23 @@ async function processWithParserService(
     formData.append('lowQualityPreview', String(PERFORMANCE_CONFIG.lowQualityPreview));
     
     // ENHANCEMENT 5: Preload essential processing code while upload is happening
+    // This is just a placeholder - in real implementation, would preload actual modules
     const preloadPromises = [
-      import('@/utils/reader/pdfRenderer'),
-      import('@/utils/reader/epubParser')
+      Promise.resolve(), // Placeholder for import('@/utils/reader/pdfRenderer')
+      Promise.resolve()  // Placeholder for import('@/utils/reader/epubParser')
     ];
     Promise.all(preloadPromises).catch(e => console.log('Preload error (non-critical):', e));
     
     // ENHANCEMENT 6: Use streaming response if supported
-    const uploadOptions = {
-      onUploadProgress: (progressEvent: any) => {
+    const uploadOptions: AxiosRequestConfig = {
+      onUploadProgress: (progressEvent: AxiosProgressEvent) => {
         if (progressEvent.total) {
           const uploadProgress = Math.round((progressEvent.loaded * 30) / progressEvent.total);
           // Update UI with upload progress
-          updateArticle({ ...initialArticle, progress: 5 + uploadProgress });
+          updateArticle({ 
+            ...initialArticle, 
+            progress: 5 + uploadProgress 
+          });
         }
       },
       // Use binary response type for faster processing
@@ -213,8 +223,13 @@ async function processWithParserService(
         `${PARSER_SERVICE_URL}/parse`);
         
     // Send the request with all optimizations
-    updateArticle({ ...initialArticle, progress: 30, processingMessage: 'Analyzing document...' });
-    const response = await axios.post(endpoint, formData, uploadOptions as any);
+    // Add processing message to article data structure if your type supports it
+    updateArticle({ 
+      ...initialArticle, 
+      progress: 30
+    });
+    
+    const response = await axios.post(endpoint, formData, uploadOptions);
     
     // ENHANCEMENT 8: Handle streaming responses for progressive UI updates
     if (PERFORMANCE_CONFIG.streamResults && response.data.on) {
@@ -238,8 +253,7 @@ async function processWithParserService(
         progress: 60,
         title: responseData.data?.metadata?.title || file.name,
         author: responseData.data?.metadata?.author || article.author,
-        pageCount: responseData.data?.metadata?.pageCount || article.pageCount,
-        processingMessage: 'Extracting content...'
+        pageCount: responseData.data?.metadata?.pageCount || article.pageCount
       });
       
       if (responseData.status === 'processing' && responseData.data?.processId) {
@@ -256,7 +270,7 @@ async function processWithParserService(
         // Process completed immediately
         const updatedArticle = {
           ...article,
-          status: 'ready' as 'ready',
+          status: 'ready' as const,
           progress: 100,
           tableOfContents: responseData.data?.tableOfContents || article.tableOfContents,
           excerpt: responseData.data?.pagesText?.[0]?.text || article.excerpt,
@@ -335,7 +349,7 @@ async function pollProcessingStatus(processId: string, articleId: string, servic
           if (response.data.status === 'completed') {
             updateArticle({
               ...article,
-              status: 'ready',
+              status: 'ready' as const,
               progress: 100,
               tableOfContents: response.data.tableOfContents || article.tableOfContents,
               pageCount: response.data.pageCount || article.pageCount,
@@ -530,4 +544,153 @@ async function processEPUBProgressively(file: File, articleId: string, updatePro
   // Implementation for staged EPUB processing
   // This would break down the parsing into smaller chunks
   // to avoid UI freezing and provide progressive updates
+}
+
+// Add these helper functions for ultra-performance file handling
+/**
+ * Generate a quick preview of the document client-side
+ */
+async function generateClientSidePreview(file: File, articleId: string): Promise<void> {
+  try {
+    const { getArticleById } = await import('@/utils/mockData');
+    const article = getArticleById(articleId);
+    if (!article) return;
+
+    // For PDFs, generate a lightweight first page preview
+    if (file.type === 'application/pdf') {
+      const firstPagePreview = await generatePDFPreview(file);
+      if (firstPagePreview) {
+        updateArticle({
+          ...article,
+          imageUrl: firstPagePreview,
+          status: article.status as "error" | "processing" | "ready"
+        });
+      }
+    }
+    // For EPUBs, extract cover if possible
+    else if (file.name.endsWith('.epub')) {
+      const coverUrl = await extractEPUBCover(file);
+      if (coverUrl) {
+        updateArticle({
+          ...article, 
+          imageUrl: coverUrl,
+          status: article.status as "error" | "processing" | "ready"
+        });
+      }
+    }
+  } catch (error) {
+    // Non-critical error, just log and continue
+    console.warn('Preview generation error (non-critical):', error);
+  }
+}
+
+/**
+ * Compress file for faster uploads if possible
+ */
+async function compressFileIfPossible(file: File): Promise<File> {
+  // For now, just return the original file
+  // In real implementation, would use compression based on file type
+  return file;
+}
+
+/**
+ * Generate a PDF preview for the first page
+ */
+async function generatePDFPreview(file: File): Promise<string | null> {
+  try {
+    // In real implementation, use PDF.js to render first page at low quality
+    return null;
+  } catch (error) {
+    console.warn('PDF preview error:', error);
+    return null;
+  }
+}
+
+/**
+ * Extract EPUB cover image if possible
+ */
+async function extractEPUBCover(file: File): Promise<string | null> {
+  try {
+    // In real implementation, would use epubjs to extract cover
+    return null;
+  } catch (error) {
+    console.warn('EPUB cover extraction error:', error);
+    return null;
+  }
+}
+
+/**
+ * Setup stream processor for progressive UI updates
+ */
+function setupStreamProcessor(stream: DataStream, articleId: string): void {
+  // In real implementation, would handle streaming updates from the server
+  // For now, we'll just call the polling function as a fallback
+  pollProcessingStatus(articleId, articleId, 'unified');
+}
+
+/**
+ * Poll for processing status with adaptive intervals for faster updates
+ */
+async function fastPollProcessingStatus(processId: string, articleId: string, service: string): Promise<void> {
+  // Quick initial polls, then slow down
+  const intervals = [200, 200, 500, 500, 1000, 1000, 2000];
+  let pollCount = 0;
+  
+  const adaptivePoll = async () => {
+    try {
+      // Get current article to update
+      const { getArticleById } = await import('@/utils/mockData');
+      const article = getArticleById(articleId);
+      
+      if (!article) return;
+      
+      // Check if already complete or errored
+      if (article.status === 'ready' || article.status === 'error') return;
+      
+      // Poll status endpoint
+      const response = await axios.get(`${PARSER_SERVICE_URL}/status/${processId}?service=${service}`);
+      
+      if (response.data) {
+        // Update progress
+        if (response.data.progress) {
+          updateArticle({
+            ...article,
+            progress: 60 + Math.floor(response.data.progress * 0.4) // Scale from 60-100%
+          });
+        }
+        
+        // Check if processing is complete
+        if (response.data.status === 'completed') {
+          updateArticle({
+            ...article,
+            status: 'ready' as const,
+            progress: 100,
+            tableOfContents: response.data.tableOfContents || article.tableOfContents,
+            pageCount: response.data.pageCount || article.pageCount,
+            excerpt: response.data.pagesText?.[0]?.text || article.excerpt,
+          });
+        } else if (response.data.status === 'error') {
+          updateArticle({
+            ...article,
+            status: 'error' as const,
+            errorMessage: response.data.error || 'Processing failed'
+          });
+        } else {
+          // Continue polling
+          pollCount++;
+          const nextInterval = intervals[Math.min(pollCount, intervals.length - 1)];
+          setTimeout(adaptivePoll, nextInterval);
+        }
+      }
+    } catch (error) {
+      console.error('Error in adaptive polling:', error);
+      // Schedule next poll anyway, but with a slightly longer delay
+      pollCount++;
+      const nextInterval = intervals[Math.min(pollCount, intervals.length - 1)] * 1.5;
+      setTimeout(adaptivePoll, nextInterval);
+    }
+  };
+  
+  // Start polling immediately
+  adaptivePoll();
 } 

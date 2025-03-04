@@ -1,5 +1,5 @@
 import React from 'react';
-import { useSearch } from '@/lib/contexts/SearchContext';
+import { useSearch } from '@/lib/contexts/search/hooks';
 import { CommandGroup, CommandItem } from '@/components/ui/command';
 import { useNavigate } from 'react-router-dom';
 import { Clock, BookOpen, Tag } from 'lucide-react';

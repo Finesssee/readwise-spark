@@ -9,7 +9,8 @@ import {
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
+import { buttonVariants } from '@/lib/constants/ui';
 import SearchDialog from '@/components/search/SearchDialog';
 import FileUploadModal from '@/components/FileUploadModal';
 import { useSearchHotkey } from '@/hooks/use-search-hotkey';

@@ -1,6 +1,6 @@
 import Fuse from 'fuse.js';
 import { Article, Highlight } from '@/lib/types';
-import { SearchFilters } from '@/lib/contexts/SearchContext';
+import { SearchFilters } from '@/lib/types/search';
 
 interface SearchableArticle extends Article {
   searchableContent: string;

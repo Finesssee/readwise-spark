@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Upload, AlertCircle, Info } from 'lucide-react';
 import { processUploadedFile } from '@/utils/uploadUtils';
-import { useToast } from '@/components/ui/toast';
+import { useToast } from '@/components/ui/use-toast';
 
 interface FileUploadModalProps {
   isOpen: boolean;
@@ -26,41 +26,16 @@ const validateFileBeforeUpload = (file: File): { isValid: boolean; message?: str
 };
 
 const FileUploadModal: React.FC<FileUploadModalProps> = React.memo(({ isOpen, onClose }) => {
-  const navigate = useNavigate();
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{message: string, type: 'info' | 'error' | 'success'} | null>(null);
   const [bytesProcessed, setBytesProcessed] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { addToast } = useToast();
-
-  // Optimized drag event handlers with useCallback
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleFiles(e.dataTransfer.files);
-    }
-  }, []);
-
-  // Handle file input change with useCallback
-  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      handleFiles(e.target.files);
-    }
-  }, []);
+  const navigate = useNavigate();
+  const { toast } = useToast();
 
   // Process the files
   const handleFiles = useCallback(async (files: FileList) => {
@@ -82,7 +57,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = React.memo(({ isOpen, on
         const validation = validateFileBeforeUpload(file);
         if (!validation.isValid) {
           setUploadStatus({message: validation.message || 'Invalid file', type: 'error'});
-          addToast({
+          toast({
             title: 'Validation Failed',
             description: validation.message || 'Invalid file',
             type: 'error'
@@ -132,13 +107,13 @@ const FileUploadModal: React.FC<FileUploadModalProps> = React.memo(({ isOpen, on
         // PERFORMANCE OPTIMIZATION: Set a timeout to ensure we don't wait forever
         // This creates a race between processing and a timeout
         const timeoutPromise = new Promise<{
-          status: 'error';
+          status: 'pending';
           message: string;
         }>((resolve) => {
           setTimeout(() => {
             resolve({
-              status: 'error',
-              message: 'Processing is taking longer than expected, but continues in the background.'
+              status: 'pending',
+              message: 'Processing is continuing in the background. You can check back later.'
             });
           }, 5000); // 5 second timeout for better responsiveness
         });
@@ -160,14 +135,16 @@ const FileUploadModal: React.FC<FileUploadModalProps> = React.memo(({ isOpen, on
           
         setUploadStatus({
           message: statusMessage,
-          type: result.status === 'success' ? 'success' : 'error'
+          type: result.status === 'success' ? 'success' : (result.status === 'pending' ? 'info' : 'error')
         });
         
         // Show toast notification
-        addToast({
-          title: result.status === 'success' ? 'Upload Success' : 'Upload Failed',
+        toast({
+          title: result.status === 'success' 
+            ? 'Upload Success' 
+            : (result.status === 'pending' ? 'Processing' : 'Upload Failed'),
           description: statusMessage,
-          type: result.status === 'success' ? 'success' : 'error'
+          type: result.status === 'success' ? 'success' : (result.status === 'pending' ? 'info' : 'error')
         });
         
         // If successful, navigate to the reader view
@@ -187,7 +164,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = React.memo(({ isOpen, on
       const errorMessage = error instanceof Error ? error.message : 'Error uploading file';
       setUploadStatus({message: errorMessage, type: 'error'});
       
-      addToast({
+      toast({
         title: 'Upload Failed',
         description: errorMessage,
         type: 'error'
@@ -195,7 +172,33 @@ const FileUploadModal: React.FC<FileUploadModalProps> = React.memo(({ isOpen, on
     } finally {
       setIsUploading(false);
     }
-  }, [addToast, onClose, navigate]);
+  }, [toast, onClose, navigate]);
+
+  const handleDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files);
+    }
+  }, [handleFiles]);
+
+  // Handle file input change with useCallback
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFiles(e.target.files);
+    }
+  }, [handleFiles]);
 
   // Open the file browser (memoized)
   const handleBrowseClick = useCallback(() => {
@@ -227,14 +230,14 @@ const FileUploadModal: React.FC<FileUploadModalProps> = React.memo(({ isOpen, on
     setTotalBytes(0);
   }, []);
 
-  // Don't render if not open
-  if (!isOpen) return null;
-
   // Calculate upload progress percentage
   const uploadProgress = useMemo(() => {
     if (totalBytes === 0) return 0;
     return Math.min(100, Math.round((bytesProcessed / totalBytes) * 100));
   }, [bytesProcessed, totalBytes]);
+
+  // Don't render if not open
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -256,7 +259,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = React.memo(({ isOpen, on
             className={`mt-4 p-8 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors duration-200 ${
               isDragging ? 'border-primary bg-primary/5' : 'border-border'
             }`}
-            onDragOver={handleDragOver}
+            onDragOver={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             onClick={handleBrowseClick}

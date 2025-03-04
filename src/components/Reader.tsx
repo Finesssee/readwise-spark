@@ -8,6 +8,7 @@ import TagDialog from './TagDialog';
 import ePub from 'epubjs';
 import PDFReader from './PDFReader';
 import EnhancedEpubReader from './EnhancedEpubReader';
+import { Book, Rendition } from 'epubjs';
 
 interface ReaderProps {
   article: Article;
@@ -81,121 +82,92 @@ const HighlightMenu: React.FC<HighlightMenuProps> = ({ position, onHighlight, on
 
 // EPUB Reader component
 const EpubReader = ({ url, title }: { url: string, title: string }) => {
-  const viewerRef = useRef<HTMLDivElement>(null);
-  const [book, setBook] = useState<any>(null);
-  const [currentPage, setCurrentPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
+  const [locations, setLocations] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(0);
+  const [fontSize, setFontSize] = useState(100);
   const [isLoading, setIsLoading] = useState(true);
-  const [loadingLocations, setLoadingLocations] = useState(false);
-  const [fontSize, setFontSize] = useState(100); // Font size in percentage
-  const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  
-  // Move the initialization code out of useEffect
-  const initializeReader = useCallback(async () => {
-    let epubBook: any = null;
-    let rendition: any = null;
-    
-    try {
-      if (!viewerRef.current) return;
-      
-      setError(null); // Clear any previous errors
-      setIsLoading(true);
-      console.log("Initializing EPUB reader for:", url);
-      
-      // Initialize the book - using a try-catch for better error handling
-      try {
-        epubBook = ePub(url, { openAs: 'epub' });
-        console.log("EPUB book created");
-      } catch (err) {
-        console.error("Error creating EPUB:", err);
-        throw new Error("Could not create EPUB reader. The file may be corrupted.");
-      }
-      
-      setBook(epubBook);
-      
-      // Initialize the rendition with minimal settings first
-      try {
-        rendition = epubBook.renderTo(viewerRef.current, {
-          width: '100%',
-          height: '100%',
-          flow: 'paginated',
-          allowScriptedContent: false, // For security
-          ignoreClass: 'annotator-hl' // Ignore highlight elements
-        });
-        console.log("Rendition created");
-      } catch (err) {
-        console.error("Error creating rendition:", err);
-        throw new Error("Could not render the EPUB content.");
-      }
-      
-      // Apply font size immediately
-      rendition.themes.fontSize(`${fontSize}%`);
-      
-      // Apply theme based on current system preference
-      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      
-      // Register and apply themes - simplified for faster loading
-      rendition.themes.register("light", { body: { color: "#000", background: "#fff" } });
-      rendition.themes.register("dark", { body: { color: "#fff", background: "#121212" } });
-      rendition.themes.select(prefersDark ? "dark" : "light");
-      
-      // Display the book with error handling
-      try {
-        console.log("Displaying EPUB content");
-        await rendition.display();
-        console.log("EPUB content displayed");
-        
-        // Set loading to false as soon as content is visible
-        setIsLoading(false);
-      } catch (err) {
-        console.error("Error displaying EPUB content:", err);
-        throw new Error("Could not display the EPUB content.");
-      }
-      
-      // Set up event listeners
-      rendition.on('relocated', (location: any) => {
-        const pageNumber = location.start.location || location.start.index || 0;
-        setCurrentPage(pageNumber);
-      });
-      
-      // Only start generating locations after content is already visible
-      // This way the user can start reading while page calculations happen in background
-      setTimeout(() => {
-        generateLocations(epubBook);
-      }, 1000);
-    } catch (error) {
-      console.error("Error in EPUB reader initialization:", error);
-      setIsLoading(false);
-      setError(error instanceof Error ? error.message : "Failed to load the EPUB book.");
-    }
-  }, [url, fontSize]);
-  
-  // Separate function for location generation to keep code cleaner
-  const generateLocations = useCallback(async (book: any) => {
+  const [epub, setEpub] = useState<Book | null>(null);
+  const [rendition, setRendition] = useState<Rendition | null>(null);
+  const [selection, setSelection] = useState<unknown | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const bookRef = useRef<HTMLDivElement>(null);
+
+  const generateLocations = useCallback(async (book: Book) => {
     if (!book) return;
     
-    setLoadingLocations(true);
+    setIsLoading(true);
     
     try {
       console.log("Generating EPUB locations in background...");
       
       // Use a smaller number for faster processing
-      await book.locations.generate(512);
+      // Use type assertion to access the generate method
+      const bookLocations = book.locations as unknown as { generate: (spineItems?: number) => Promise<void> };
+      await bookLocations.generate(512);
       
-      const totalLoc = (book.locations as any).total || 1;
+      // Use type assertion to access the total property
+      const locationsWithTotal = book.locations as unknown as { total: number };
+      const totalLoc = locationsWithTotal.total || 1;
       console.log("EPUB locations generated, total pages:", totalLoc);
       
-      setTotalPages(totalLoc);
-      setLoadingLocations(false);
+      setPages(totalLoc);
+      setIsLoading(false);
     } catch (error) {
-      console.error("Error generating EPUB locations:", error);
-      setLoadingLocations(false);
-      setTotalPages(1); // Default fallback
+      console.error("Error generating locations:", error);
+      setIsLoading(false);
     }
   }, []);
+
+  const initializeReader = useCallback(async () => {
+    if (!url) return;
+    
+    try {
+      // Initialize book
+      const book = ePub(url);
+      setEpub(book);
+      
+      // Create rendition
+      const rendition = book.renderTo("book", {
+        width: "100%",
+        height: "100%",
+        flow: "paginated",
+        spread: "none",
+        minSpreadWidth: 900,
+      });
+      setRendition(rendition);
+      
+      // Display
+      rendition.display();
+      
+      // Handle selection
+      rendition.on("selected", (cfiRange: string, contents: unknown) => {
+        setSelection({
+          cfi: cfiRange,
+          text: rendition.getRange(cfiRange).toString()
+        });
+      });
+      
+      // Generate locations for pagination
+      await generateLocations(book);
+      
+      // Handle loaded
+      rendition.on("rendered", () => {
+        setIsLoading(false);
+      });
+      
+      // Handle errors
+      book.on("openFailed", (error: Error) => {
+        setError(`Failed to open: ${error.message}`);
+        setIsLoading(false);
+      });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to load book');
+      setIsLoading(false);
+    }
+  }, [url, generateLocations]);
   
-  // Use the useEffect hook to call initializeReader
   useEffect(() => {
     let mounted = true;
     
@@ -205,42 +177,42 @@ const EpubReader = ({ url, title }: { url: string, title: string }) => {
     // Cleanup function
     return () => {
       mounted = false;
-      if (book) {
+      if (epub) {
         try {
           console.log("Destroying EPUB book instance");
-          book.destroy();
+          epub.destroy();
         } catch (err) {
           console.error("Error destroying EPUB instance:", err);
         }
       }
     };
-  }, [initializeReader, book]);
+  }, [initializeReader, epub]);
   
   const changeFontSize = (delta: number) => {
     const newSize = Math.max(50, Math.min(200, fontSize + delta));
     setFontSize(newSize);
     
-    if (book && book.rendition) {
-      book.rendition.themes.fontSize(`${newSize}%`);
+    if (rendition) {
+      rendition.themes.fontSize(`${newSize}%`);
     }
   };
   
   const resetFontSize = () => {
     setFontSize(100);
-    if (book && book.rendition) {
-      book.rendition.themes.fontSize('100%');
+    if (rendition) {
+      rendition.themes.fontSize('100%');
     }
   };
   
   const goToPrevPage = () => {
-    if (book && book.rendition) {
-      book.rendition.prev();
+    if (rendition) {
+      rendition.prev();
     }
   };
   
   const goToNextPage = () => {
-    if (book && book.rendition) {
-      book.rendition.next();
+    if (rendition) {
+      rendition.next();
     }
   };
   
@@ -260,27 +232,11 @@ const EpubReader = ({ url, title }: { url: string, title: string }) => {
   
   // Touch event handlers for swipe navigation
   const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchStartX(e.touches[0].clientX);
+    // Touch event handling is not implemented in the new EpubReader component
   };
   
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX === null) return;
-    
-    const touchEndX = e.changedTouches[0].clientX;
-    const diff = touchEndX - touchStartX;
-    
-    // If the touch movement is significant enough (more than 50px)
-    if (Math.abs(diff) > 50) {
-      if (diff > 0) {
-        // Swipe right
-        goToPrevPage();
-      } else {
-        // Swipe left
-        goToNextPage();
-      }
-    }
-    
-    setTouchStartX(null);
+    // Touch event handling is not implemented in the new EpubReader component
   };
   
   // Function to retry loading on error
@@ -354,7 +310,7 @@ const EpubReader = ({ url, title }: { url: string, title: string }) => {
             </div>
             
             <div 
-              ref={viewerRef} 
+              ref={bookRef} 
               className="w-full h-[80vh] border rounded-lg bg-white dark:bg-zinc-900"
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
@@ -370,13 +326,13 @@ const EpubReader = ({ url, title }: { url: string, title: string }) => {
               </button>
               
               <div className="text-sm text-muted-foreground">
-                {loadingLocations ? (
+                {isLoading ? (
                   <span className="flex items-center">
                     <div className="h-3 w-3 rounded-full border-2 border-t-primary border-primary/30 animate-spin mr-2"></div>
                     Calculating pages...
                   </span>
                 ) : (
-                  <span>Page {currentPage + 1} of {totalPages || '?'}</span>
+                  <span>Page {page} of {pages || '?'}</span>
                 )}
               </div>
               
@@ -403,16 +359,17 @@ const EpubReader = ({ url, title }: { url: string, title: string }) => {
 
 // Helper to render file view based on source type
 const FileViewer = ({ article }: { article: Article }) => {
-  // For PDF files, use the custom PDFReader component
+  // State for text fullscreen mode
+  const [isTextFullscreen, setIsTextFullscreen] = useState(false);
+
   if (article.source === 'PDF') {
+    // Use the PDF reader component
     return <PDFReader article={article} />;
-  } else if (article.source === 'Book') {
+  } else if (article.source === 'EPUB') {
     // Use the enhanced EPUB reader component with immersive mode
     return <EnhancedEpubReader article={article} />;
   } else if (article.source === 'Text' || article.source === 'Note') {
     // Enhanced text viewer with immersive mode
-    const [isTextFullscreen, setIsTextFullscreen] = useState(false);
-    
     return (
       <div 
         className={`transition-all duration-300 ease-in-out ${

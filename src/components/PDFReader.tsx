@@ -18,12 +18,14 @@ import {
   BookOpen,
   Search,
   Bookmark,
-  X
+  X,
+  Settings
 } from 'lucide-react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/TextLayer.css';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import { v4 as uuidv4 } from 'uuid';
+import { Link } from 'react-router-dom';
 
 // Initialize PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
@@ -40,7 +42,7 @@ interface TextSelectionPosition {
   rects: DOMRect[];
 }
 
-const PDFReader: React.FC<PDFReaderProps> = ({ article, onUpdateArticle }) => {
+const PDFReader = ({ article, onUpdateArticle }: PDFReaderProps): React.ReactNode => {
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [zoom, setZoom] = useState(100);
@@ -54,11 +56,12 @@ const PDFReader: React.FC<PDFReaderProps> = ({ article, onUpdateArticle }) => {
   const [showNoteDialog, setShowNoteDialog] = useState(false);
   const [currentHighlight, setCurrentHighlight] = useState<Highlight | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<{ pageIndex: number; matchIndex: number; str: string }[]>([]);
   const [currentSearchIndex, setCurrentSearchIndex] = useState(-1);
+  const [isSearching, setIsSearching] = useState(false);
   
   const pdfContainerRef = useRef<HTMLDivElement>(null);
-  const documentRef = useRef<any>(null);
+  const documentRef = useRef<unknown>(null);
   
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
@@ -118,6 +121,8 @@ const PDFReader: React.FC<PDFReaderProps> = ({ article, onUpdateArticle }) => {
   };
   
   const extractTextFromPDF = async () => {
+    if (!documentRef.current) return;
+    
     try {
       setIsTextExtracting(true);
       
@@ -131,7 +136,8 @@ const PDFReader: React.FC<PDFReaderProps> = ({ article, onUpdateArticle }) => {
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
-        const pageText = textContent.items.map((item: any) => item.str).join(' ');
+        const textItems = textContent.items as { str: string }[];
+        const pageText = textItems.map(item => item.str).join(' ');
         fullText += `<h2>Page ${i}</h2>\n${pageText}\n\n`;
       }
       
@@ -180,7 +186,7 @@ const PDFReader: React.FC<PDFReaderProps> = ({ article, onUpdateArticle }) => {
       id: uuidv4(),
       articleId: article.id,
       text: textSelection.text,
-      color: color as any,
+      color: color as "yellow" | "blue" | "green" | "pink" | "purple" | "orange" | "red" | "teal",
       createdAt: new Date().toISOString(),
       pageNumber: viewMode === 'original' ? currentPage : undefined,
       position: viewMode === 'original' ? {
@@ -223,36 +229,46 @@ const PDFReader: React.FC<PDFReaderProps> = ({ article, onUpdateArticle }) => {
   };
   
   const handleSearch = async () => {
-    if (!searchQuery.trim() || !documentRef.current) return;
+    if (!searchQuery || !documentRef.current) return;
+    
+    setIsSearching(true);
+    const searchResults: { pageIndex: number; matchIndex: number; str: string }[] = [];
     
     try {
       const loadingTask = pdfjs.getDocument(article.url);
       const pdf = await loadingTask.promise;
       
-      const results: any[] = [];
-      
       // Search each page
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
-        const pageText = textContent.items.map((item: any) => item.str).join(' ');
+        const textItems = textContent.items as { str: string }[];
         
-        if (pageText.toLowerCase().includes(searchQuery.toLowerCase())) {
-          results.push({
-            pageNumber: i,
-            text: pageText
+        // Find matches on this page
+        const pageText = textItems.map(item => item.str).join(' ');
+        let matchIndex = 0;
+        let lastIndex = -1;
+        
+        while ((lastIndex = pageText.indexOf(searchQuery, lastIndex + 1)) !== -1) {
+          searchResults.push({
+            pageIndex: i,
+            matchIndex,
+            str: searchQuery
           });
+          matchIndex++;
         }
       }
       
-      setSearchResults(results);
+      setSearchResults(searchResults);
       
-      if (results.length > 0) {
+      if (searchResults.length > 0) {
         setCurrentSearchIndex(0);
-        setCurrentPage(results[0].pageNumber);
+        setCurrentPage(searchResults[0].pageIndex);
       }
     } catch (error) {
       console.error('Error searching PDF:', error);
+    } finally {
+      setIsSearching(false);
     }
   };
   
@@ -268,7 +284,7 @@ const PDFReader: React.FC<PDFReaderProps> = ({ article, onUpdateArticle }) => {
     }
     
     setCurrentSearchIndex(newIndex);
-    setCurrentPage(searchResults[newIndex].pageNumber);
+    setCurrentPage(searchResults[newIndex].pageIndex);
   };
   
   // Create thumbnail array based on total pages
@@ -304,6 +320,58 @@ const PDFReader: React.FC<PDFReaderProps> = ({ article, onUpdateArticle }) => {
   
   return (
     <div className="fixed inset-0 bg-gray-900 text-white flex flex-col h-screen pt-16">
+      {/* Top Navigation Bar */}
+      <div className="h-12 border-b border-gray-800 flex items-center justify-between px-4 bg-gray-900">
+        <div className="flex items-center space-x-2">
+          {/* Back to Library Button */}
+          <Link to="/library" className="flex items-center space-x-1 p-1.5 rounded hover:bg-gray-800 text-gray-300">
+            <ArrowLeft className="h-4 w-4" />
+            <span className="text-sm">Back to Library</span>
+          </Link>
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          {/* Favorite Button */}
+          <button 
+            className="p-1.5 rounded hover:bg-gray-800 text-gray-300"
+            onClick={() => {
+              if (onUpdateArticle) {
+                onUpdateArticle({
+                  ...article,
+                  saved: !article.saved
+                });
+              }
+            }}
+            title={article.saved ? "Remove from favorites" : "Add to favorites"}
+          >
+            <Bookmark className={`h-4 w-4 ${article.saved ? 'fill-current text-pink-500' : ''}`} />
+          </button>
+          
+          {/* Collapse Button */}
+          <button 
+            className="p-1.5 rounded hover:bg-gray-800 text-gray-300"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          >
+            {isFullscreen ? (
+              <Minimize2 className="h-4 w-4" />
+            ) : (
+              <Maximize2 className="h-4 w-4" />
+            )}
+          </button>
+          
+          {/* Export Button */}
+          <button className="p-1.5 rounded hover:bg-gray-800 text-gray-300" title="Export">
+            <Download className="h-4 w-4" />
+          </button>
+          
+          {/* Settings Button */}
+          <button className="p-1.5 rounded hover:bg-gray-800 text-gray-300" title="Settings">
+            <Settings className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar - Thumbnails */}
         <div className="w-[120px] border-r border-gray-800 flex flex-col bg-gray-900">
@@ -348,13 +416,11 @@ const PDFReader: React.FC<PDFReaderProps> = ({ article, onUpdateArticle }) => {
           {/* PDF Toolbar */}
           <div className="h-12 border-b border-gray-800 flex items-center justify-between px-4 bg-gray-900">
             <div className="flex items-center space-x-2">
-              <button className="p-1.5 rounded hover:bg-gray-800">
-                <ArrowLeft className="h-4 w-4" />
-              </button>
               <div className="flex items-center space-x-1">
                 <button 
                   className="p-1.5 rounded hover:bg-gray-800"
                   onClick={decreaseZoom}
+                  title="Zoom out"
                 >
                   <Minus className="h-4 w-4" />
                 </button>
@@ -362,6 +428,7 @@ const PDFReader: React.FC<PDFReaderProps> = ({ article, onUpdateArticle }) => {
                 <button 
                   className="p-1.5 rounded hover:bg-gray-800"
                   onClick={increaseZoom}
+                  title="Zoom in"
                 >
                   <Plus className="h-4 w-4" />
                 </button>
@@ -377,19 +444,6 @@ const PDFReader: React.FC<PDFReaderProps> = ({ article, onUpdateArticle }) => {
                   <AlignLeft className="h-4 w-4" />
                 ) : (
                   <FileText className="h-4 w-4" />
-                )}
-              </button>
-              
-              {/* Fullscreen Toggle */}
-              <button 
-                className="p-1.5 rounded hover:bg-gray-800"
-                onClick={toggleFullscreen}
-                title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-              >
-                {isFullscreen ? (
-                  <Minimize2 className="h-4 w-4" />
-                ) : (
-                  <Maximize2 className="h-4 w-4" />
                 )}
               </button>
             </div>

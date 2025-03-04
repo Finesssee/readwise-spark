@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { useSearch } from '@/lib/contexts/SearchContext';
+import { useSearch } from '@/lib/contexts/search/hooks';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';

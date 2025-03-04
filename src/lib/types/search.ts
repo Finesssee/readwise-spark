@@ -1,10 +1,13 @@
 import { Article } from '@/lib/types';
 
 export interface SearchFilters {
-  dateRange?: { from: Date; to: Date };
-  source?: string[];
-  readStatus?: 'read' | 'unread' | 'all';
+  readStatus: 'all' | 'read' | 'unread';
+  source?: string;
   tags?: string[];
+  dateRange?: {
+    from: Date | null;
+    to: Date | null;
+  };
   hasHighlights?: boolean;
   hasNotes?: boolean;
 }
@@ -17,9 +20,9 @@ export interface SearchState {
   error: string | null;
 }
 
-export type SearchAction =
+export type SearchAction = 
   | { type: 'SET_QUERY'; payload: string }
-  | { type: 'SET_FILTERS'; payload: SearchFilters }
+  | { type: 'SET_FILTERS'; payload: Partial<SearchFilters> }
   | { type: 'SET_RESULTS'; payload: Article[] }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null };

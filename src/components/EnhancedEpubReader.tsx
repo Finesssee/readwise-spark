@@ -22,7 +22,8 @@ import {
   ListFilter,
   Menu,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Settings
 } from 'lucide-react';
 import ePub from 'epubjs';
 import Book from 'epubjs/types/book';
@@ -30,6 +31,7 @@ import Rendition from 'epubjs/types/rendition';
 import Contents from 'epubjs/types/contents';
 import Navigation from 'epubjs/types/navigation';
 import { v4 as uuidv4 } from 'uuid';
+import { Link } from 'react-router-dom';
 
 // Add CFI property to Highlight type
 interface EPubHighlight extends Highlight {
@@ -49,12 +51,72 @@ interface NavItem {
   level: number;
 }
 
+// Interface for epubjs navigation item
+interface EPubNavItem {
+  href: string;
+  label: string;
+  subitems?: EPubNavItem[];
+  [key: string]: unknown;
+}
+
+interface EPubMetadata {
+  title?: string;
+  creator?: string;
+  language?: string;
+  publisher?: string;
+  pubdate?: string;
+  identifier?: string;
+  description?: string;
+  [key: string]: unknown;
+}
+
 interface TextSelectionPosition {
   x: number;
   y: number;
   text: string;
   cfi?: string;
 }
+
+// Interface for search results
+interface SearchResult {
+  cfi: string;
+  excerpt: string;
+  index: number;
+}
+
+// Interface for EPUB location information
+interface EPUBLocation {
+  start: {
+    index?: number;
+    href?: string;
+    location?: number;
+    displayed?: {
+      page?: number;
+      total?: number;
+    };
+    [key: string]: unknown;
+  };
+  end?: {
+    index?: number;
+    href?: string;
+    location?: number;
+    [key: string]: unknown;
+  };
+  percentage?: number;
+  [key: string]: unknown;
+}
+
+// Replace the Function type with a more specific function type
+type AnnotationsWithAdd = {
+  add(
+    type: string, 
+    cfi: string, 
+    data?: object, 
+    callback?: () => void, 
+    className?: string
+  ): void;
+  clear(type?: string): void;
+};
 
 const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpdateArticle }) => {
   // State for reader
@@ -72,7 +134,7 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
   const [tocExpanded, setTocExpanded] = useState(true);
   const [infoExpanded, setInfoExpanded] = useState(true);
   const [tocItems, setTocItems] = useState<NavItem[]>([]);
-  const [metadata, setMetadata] = useState<any>({});
+  const [metadata, setMetadata] = useState<Record<string, unknown>>({});
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [currentChapter, setCurrentChapter] = useState<string>('');
   
@@ -84,14 +146,39 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
   
   // Search functionality
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [currentSearchIndex, setCurrentSearchIndex] = useState(-1);
   const [isSearching, setIsSearching] = useState(false);
   
   // Refs
   const viewerRef = useRef<HTMLDivElement>(null);
   
-  // Initialize the EPUB reader
+  // Generate locations for page numbers
+  const generateLocations = useCallback(async (book: Book) => {
+    if (!book) return;
+    
+    setLoadingLocations(true);
+    
+    try {
+      // Use a smaller number for faster processing
+      // Fix TypeScript error with proper typing
+      type LocationsWithGenerate = {
+        generate: (spineItems?: number) => Promise<void>;
+        total: number;
+      };
+      const locations = book.locations as unknown as LocationsWithGenerate;
+      await locations.generate(512);
+      
+      const totalLoc = locations.total || 1;
+      setTotalPages(totalLoc);
+      setLoadingLocations(false);
+    } catch (error) {
+      console.error('Error generating EPUB locations:', error);
+      setLoadingLocations(false);
+    }
+  }, []);
+  
+  // Initialize reader
   const initializeReader = useCallback(async () => {
     try {
       setError(null);
@@ -105,7 +192,7 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
       
       // Get metadata
       epubBook.loaded.metadata.then(meta => {
-        setMetadata(meta);
+        setMetadata(meta as unknown as Record<string, unknown>);
       });
       
       // Get cover image
@@ -118,19 +205,20 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
       });
       
       // Get TOC
-      epubBook.loaded.navigation.then((nav: Navigation) => {
-        const processNavItems = (items: any[], level = 0): NavItem[] => {
+      epubBook.loaded.navigation.then(nav => {
+        const processNavItems = (items: Record<string, unknown>[], level = 0): NavItem[] => {
           return items.map(item => ({
             id: uuidv4(),
-            href: item.href,
-            label: item.label,
-            subitems: item.subitems ? processNavItems(item.subitems, level + 1) : undefined,
+            href: item.href as string,
+            label: item.label as string,
+            subitems: item.subitems ? processNavItems(item.subitems as Record<string, unknown>[], level + 1) : undefined,
             level
           }));
         };
         
         if (nav.toc) {
-          setTocItems(processNavItems(nav.toc));
+          const tocItems = nav.toc as unknown as Record<string, unknown>[];
+          setTocItems(processNavItems(tocItems));
         }
       });
       
@@ -172,20 +260,22 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
       await rendition.display();
       
       // Set up event listeners
-      rendition.on('relocated', (location: any) => {
+      rendition.on('relocated', (location: EPUBLocation) => {
         const pageNumber = location.start.location || location.start.index || 0;
         setCurrentPage(pageNumber);
         
         // Get current chapter title
-        // @ts-ignore - epubjs spine API not fully typed
         const spineItem = epubBook.spine.get(location.start.href);
-        if (spineItem && typeof spineItem.then === 'function') {
-          // @ts-ignore - promise API
-          spineItem.then((item: any) => {
-            if (item && item.title) {
-              setCurrentChapter(item.title);
-            }
-          });
+        if (spineItem) {
+          // Cast to avoid TypeScript errors with the epubjs API
+          const spineItemAny = spineItem as unknown;
+          if (typeof spineItemAny === 'object' && spineItemAny && 'then' in spineItemAny && typeof spineItemAny.then === 'function') {
+            spineItemAny.then((item: unknown) => {
+              if (item && typeof item === 'object' && 'title' in item) {
+                setCurrentChapter(item.title as string);
+              }
+            });
+          }
         }
       });
       
@@ -221,28 +311,7 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
       setIsLoading(false);
       setError(error instanceof Error ? error.message : 'Failed to load the EPUB book');
     }
-  }, [article.url, fontSize]);
-  
-  // Generate locations for page numbers
-  const generateLocations = useCallback(async (book: Book) => {
-    if (!book) return;
-    
-    setLoadingLocations(true);
-    
-    try {
-      // Use a smaller number for faster processing
-      await book.locations.generate(512);
-      
-      // @ts-ignore - epubjs locations API not fully typed
-      const totalLoc = book.locations.total || 1;
-      setTotalPages(totalLoc);
-      setLoadingLocations(false);
-    } catch (error) {
-      console.error('Error generating EPUB locations:', error);
-      setLoadingLocations(false);
-      setTotalPages(1); // Default fallback
-    }
-  }, []);
+  }, [article.url, fontSize, generateLocations]);
   
   // Initialize on mount
   useEffect(() => {
@@ -313,19 +382,20 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
   const handleHighlight = useCallback((color: string) => {
     if (!textSelection || !rendition || !textSelection.cfi || !onUpdateArticle) return;
     
-    const newHighlight: EPubHighlight = {
+    const newHighlight: Highlight = {
       id: uuidv4(),
       articleId: article.id,
       text: textSelection.text,
-      color: color as any,
+      color: color as "yellow" | "blue" | "green" | "pink" | "purple" | "orange" | "red" | "teal",
       createdAt: new Date().toISOString(),
       cfi: textSelection.cfi
     };
     
     // Add highlight to the DOM
     if (textSelection.cfi) {
-      // @ts-ignore - Using direct annotation API
-      rendition.annotations.add('highlight', textSelection.cfi, {}, undefined, color);
+      // Using direct annotation API with specific function types
+      const annotations = rendition.annotations as unknown as AnnotationsWithAdd;
+      annotations.add('highlight', textSelection.cfi, {}, undefined, color);
     }
     
     const updatedArticle = {
@@ -370,7 +440,7 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
     setSearchResults([]);
     
     try {
-      // @ts-ignore - epubjs search is not in the types
+      // @ts-expect-error - epubjs search is not in the types
       const results = await book.search(searchQuery);
       setSearchResults(results);
       
@@ -451,10 +521,11 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
     
     // Clear existing highlights - modified for TS compatibility
     try {
-      // @ts-ignore - Using direct annotation API
-      rendition.annotations.clear && rendition.annotations.clear();
+      // Using direct annotation API with specific function types
+      const annotations = rendition.annotations as unknown as AnnotationsWithAdd;
+      annotations.clear('highlight'); // Pass the type parameter to clear
     } catch (error) {
-      console.error('Error clearing highlights:', error);
+      console.error('Error clearing annotations:', error);
     }
     
     // Apply all saved highlights
@@ -462,11 +533,42 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
       // Cast to our extended type to access the cfi property
       const epubHighlight = highlight as EPubHighlight;
       if (epubHighlight.cfi) {
-        // @ts-ignore - Using direct annotation API
-        rendition.annotations.add('highlight', epubHighlight.cfi, {}, undefined, highlight.color);
+        // Using direct annotation API with specific function types
+        const annotations = rendition.annotations as unknown as AnnotationsWithAdd;
+        annotations.add('highlight', epubHighlight.cfi, {}, undefined, highlight.color);
       }
     });
   }, [rendition, article.highlights]);
+  
+  // Remove type 'any' from function parameter
+  const getSpineItemTitle = (hrefPath: string): string => {
+    if (!book) return '';
+    
+    try {
+      // Define proper type for spine item instead of using ts-expect-error
+      type SpineItem = {
+        href?: string;
+        title?: string;
+        [key: string]: unknown;
+      };
+      
+      let title = '';
+      // Use proper typed function for spine iteration
+      const getSpineItems = book.spine as unknown as { 
+        each: (callback: (item: SpineItem) => void) => void 
+      };
+      
+      getSpineItems.each(function(item) {
+        if (item.href === hrefPath) {
+          title = item.title || '';
+        }
+      });
+      return title;
+    } catch (error) {
+      console.error('Error getting spine item title:', error);
+      return '';
+    }
+  };
   
   return (
     <div className={`
@@ -476,6 +578,58 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
       pt-16
       ${isFullscreen ? 'z-50' : ''}
     `}>
+      {/* Top Navigation Bar */}
+      <div className="h-12 border-b border-gray-800 flex items-center justify-between px-4 bg-gray-900">
+        <div className="flex items-center space-x-2">
+          {/* Back to Library Button */}
+          <Link to="/library" className="flex items-center space-x-1 p-1.5 rounded hover:bg-gray-800 text-gray-300">
+            <ArrowLeft className="h-4 w-4" />
+            <span className="text-sm">Back to Library</span>
+          </Link>
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          {/* Favorite Button */}
+          <button 
+            className="p-1.5 rounded hover:bg-gray-800 text-gray-300"
+            onClick={() => {
+              if (onUpdateArticle) {
+                onUpdateArticle({
+                  ...article,
+                  saved: !article.saved
+                });
+              }
+            }}
+            title={article.saved ? "Remove from favorites" : "Add to favorites"}
+          >
+            <Bookmark className={`h-4 w-4 ${article.saved ? 'fill-current text-pink-500' : ''}`} />
+          </button>
+          
+          {/* Collapse Button */}
+          <button 
+            className="p-1.5 rounded hover:bg-gray-800 text-gray-300"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          >
+            {isFullscreen ? (
+              <Minimize2 className="h-4 w-4" />
+            ) : (
+              <Maximize2 className="h-4 w-4" />
+            )}
+          </button>
+          
+          {/* Export Button */}
+          <button className="p-1.5 rounded hover:bg-gray-800 text-gray-300" title="Export">
+            <Download className="h-4 w-4" />
+          </button>
+          
+          {/* Settings Button */}
+          <button className="p-1.5 rounded hover:bg-gray-800 text-gray-300" title="Settings">
+            <Settings className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar - TOC */}
         <div className="w-[250px] border-r border-gray-800 flex flex-col bg-gray-900 overflow-hidden">
@@ -506,7 +660,7 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
               )}
             </div>
             <h3 className="mt-3 text-sm font-medium leading-tight line-clamp-2">{article.title}</h3>
-            {metadata.creator && <p className="text-xs text-gray-400 mt-1">{metadata.creator}</p>}
+            {metadata.creator && <p className="text-xs text-gray-400 mt-1">{metadata.creator as string}</p>}
           </div>
           
           {/* Table of Contents */}
@@ -546,7 +700,7 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
             )}
             
             {/* Highlights Section */}
-            {article.highlights.length > 0 && (
+            {article.highlights && article.highlights.length > 0 && (
               <div className="p-2 mt-4">
                 <div className="text-sm font-medium text-gray-400 px-2 py-1">HIGHLIGHTS</div>
                 <div className="space-y-2 mt-2">
@@ -579,14 +733,11 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
           {/* EPUB Toolbar */}
           <div className="h-12 border-b border-gray-800 flex items-center justify-between px-4 bg-gray-900">
             <div className="flex items-center space-x-2">
-              <button className="p-1.5 rounded hover:bg-gray-800 text-gray-300">
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-              
               <div className="flex items-center space-x-1">
                 <button 
                   className="p-1.5 rounded hover:bg-gray-800 text-gray-300"
                   onClick={() => changeFontSize(-10)}
+                  title="Decrease font size"
                 >
                   <Minus className="h-4 w-4" />
                 </button>
@@ -594,22 +745,17 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
                 <button 
                   className="p-1.5 rounded hover:bg-gray-800 text-gray-300"
                   onClick={() => changeFontSize(10)}
+                  title="Increase font size"
                 >
                   <Plus className="h-4 w-4" />
                 </button>
               </div>
               
-              {/* Fullscreen Toggle */}
               <button 
                 className="p-1.5 rounded hover:bg-gray-800 text-gray-300"
-                onClick={toggleFullscreen}
-                title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                title="Refresh"
               >
-                {isFullscreen ? (
-                  <Minimize2 className="h-4 w-4" />
-                ) : (
-                  <Maximize2 className="h-4 w-4" />
-                )}
+                <RotateCw className="h-4 w-4" />
               </button>
             </div>
             
@@ -635,13 +781,6 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
                   <Search className="h-3 w-3" />
                 </button>
               </div>
-              
-              <button className="p-1.5 rounded hover:bg-gray-800 text-gray-300">
-                <RotateCw className="h-4 w-4" />
-              </button>
-              <button className="p-1.5 rounded hover:bg-gray-800 text-gray-300">
-                <Download className="h-4 w-4" />
-              </button>
             </div>
           </div>
           
@@ -795,14 +934,14 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
               <div className="p-4 border-b border-gray-800">
                 <h2 className="text-lg font-medium text-gray-100">{article.title}</h2>
                 {metadata.creator && (
-                  <div className="text-sm text-gray-400 mt-1">{metadata.creator}</div>
+                  <div className="text-sm text-gray-400 mt-1">{metadata.creator as string}</div>
                 )}
               </div>
               
               {metadata.description && (
                 <div className="p-4 border-b border-gray-800">
                   <h3 className="text-sm font-medium text-gray-400 mb-2">DESCRIPTION</h3>
-                  <p className="text-sm text-gray-300 line-clamp-6">{metadata.description}</p>
+                  <p className="text-sm text-gray-300 line-clamp-6">{metadata.description as string}</p>
                 </div>
               )}
               
@@ -817,14 +956,17 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
                   {metadata.publisher && (
                     <div className="flex justify-between">
                       <span className="text-sm text-gray-400">Publisher</span>
-                      <span className="text-sm text-gray-300">{metadata.publisher}</span>
+                      <span className="text-sm text-gray-300">{metadata.publisher as string}</span>
                     </div>
                   )}
                   
                   {metadata.pubdate && (
                     <div className="flex justify-between">
                       <span className="text-sm text-gray-400">Published</span>
-                      <span className="text-sm text-gray-300">{new Date(metadata.pubdate).getFullYear()}</span>
+                      <span className="text-sm text-gray-300">
+                        {metadata.pubdate && typeof metadata.pubdate === 'string' ? 
+                          new Date(metadata.pubdate).getFullYear() : 'Unknown'}
+                      </span>
                     </div>
                   )}
                   

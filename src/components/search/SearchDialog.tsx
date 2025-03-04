@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Command, CommandInput, CommandList, CommandEmpty } from '@/components/ui/command';
-import { useSearch } from '@/lib/contexts/SearchContext';
+import { useSearch } from '@/lib/contexts/search/hooks';
 import SearchFilters from '@/components/search/SearchFilters';
 import SearchResults from '@/components/search/SearchResults';
 import { X } from 'lucide-react';
