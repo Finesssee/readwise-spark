@@ -471,6 +471,21 @@ app.get('/status/:processId', async (req, res) => {
   }
 });
 
+// Add status endpoint
+app.get('/system-status', (req, res) => {
+  res.json({
+    status: 'ok',
+    services: {
+      tika: true,
+      pymupdf: true,
+      unstructured: true
+    },
+    memory: process.memoryUsage(),
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Helper functions to call different backends
 async function callTika(filePath, filename, extractContent = false) {
   try {
@@ -554,13 +569,46 @@ async function callUnstructured(filePath, filename) {
   }
 }
 
-// Start the server
+// Add health checks for backend services
+async function checkServiceHealth() {
+  const services = [
+    { name: 'Tika', url: `http://localhost:${config.tikaPort}/tika` },
+    { name: 'PyMuPDF', url: `http://localhost:${config.muPdfPort}/health` },
+    { name: 'Unstructured', url: `http://localhost:${config.unstructuredPort}/health` }
+  ];
+
+  for (const service of services) {
+    try {
+      await axios.get(service.url, { timeout: 5000 });
+      console.log(`${service.name} health check OK`);
+    } catch (error) {
+      console.error(`${service.name} health check FAILED: ${error.message}`);
+      throw new Error(`${service.name} service unavailable`);
+    }
+  }
+}
+
+// Modify server startup sequence
 async function startServer() {
   try {
-    // First start backend services
     await startBackendServices();
+    await checkServiceHealth(); // Add health check
     
-    // Then start the API server
+    // Add system status endpoint for health checks
+    app.get('/system-status', (req, res) => {
+      res.json({
+        status: 'ok',
+        services: {
+          tika: true,
+          pymupdf: true,
+          unstructured: true
+        },
+        memory: process.memoryUsage(),
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+      });
+    });
+    
     app.listen(config.port, () => {
       console.log(`Unified Parser API running on port ${config.port}`);
       console.log(`- Tika endpoint: http://localhost:${config.port}/parse/tika`);
@@ -568,8 +616,22 @@ async function startServer() {
       console.log(`- Unstructured endpoint: http://localhost:${config.port}/parse/extract`);
       console.log(`- Smart parsing: http://localhost:${config.port}/parse`);
     });
+    
+    // Add graceful shutdown
+    process.on('SIGTERM', () => {
+      console.log('SIGTERM received, shutting down gracefully');
+      // Perform cleanup
+      process.exit(0);
+    });
+    
+    process.on('uncaughtException', (error) => {
+      console.error('Uncaught Exception:', error);
+      // Log error but keep running if possible
+    });
+    
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('Critical service failure:', error);
+    process.exit(1);
   }
 }
 

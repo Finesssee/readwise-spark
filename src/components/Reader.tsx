@@ -365,7 +365,7 @@ const FileViewer = ({ article }: { article: Article }) => {
   if (article.source === 'PDF') {
     // Use the PDF reader component
     return <PDFReader article={article} />;
-  } else if (article.source === 'EPUB') {
+  } else if (article.source === 'EPUB' || article.source === 'Book') {
     // Use the enhanced EPUB reader component with immersive mode
     return <EnhancedEpubReader article={article} />;
   } else if (article.source === 'Text' || article.source === 'Note') {

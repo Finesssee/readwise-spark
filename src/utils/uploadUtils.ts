@@ -1,31 +1,64 @@
 import { v4 as uuidv4 } from 'uuid';
 // import { load } from '@artifex/mupdf'; // Commented out until properly installed
-import { Article, FileProcessingOptions } from '@/lib/types';
+import { Article } from '@/lib/types';
 import { updateArticle } from '@/utils/mockData';
 import { extractMetadata } from '@/utils/metadata';
-import axios, { AxiosProgressEvent, AxiosRequestConfig } from 'axios';
+import axios, { AxiosProgressEvent, AxiosRequestConfig, AxiosResponse } from 'axios';
+
+// Define the FileProcessingOptions interface here
+export interface FileProcessingOptions {
+  articleId?: string;
+  forceReprocess?: boolean;
+  skipCache?: boolean;
+  priority?: 'high' | 'normal' | 'low';
+}
+
+// Add caching for processed files
+const processedFilesCache = new Map<string, {
+  article: Article;
+  timestamp: number;
+}>();
+
+// Hash function for file fingerprinting (simplified)
+async function getFileFingerprint(file: File): Promise<string> {
+  // Use first 1KB, file size and modification date as a fingerprint
+  const buffer = await file.slice(0, 1024).arrayBuffer();
+  const array = new Uint8Array(buffer);
+  let hash = 0;
+  for (let i = 0; i < array.length; i++) {
+    hash = ((hash << 5) - hash) + array[i];
+    hash |= 0; // Convert to 32bit integer
+  }
+  return `${hash}-${file.size}-${file.lastModified}`;
+}
+
+// Cache lifetime in milliseconds (30 minutes)
+const CACHE_LIFETIME = 30 * 60 * 1000;
 
 // Configuration for performance enhancement
 const PARSER_SERVICE_URL = 'http://localhost:3000';
 const PERFORMANCE_CONFIG = {
   // Ultra-performance settings
-  chunkSize: 50, // Process in 50-page chunks for parallel processing
-  maxConcurrentJobs: 8, // Process up to 8 chunks simultaneously
+  chunkSize: 25, // Smaller chunks for faster initial processing
+  maxConcurrentJobs: 12, // Increase from 8 to 12 for more parallel processing
   useCompression: true, // Use compression for network transfers
   priorityExtraction: true, // Extract only critical data first
   preGenerateSearchIndex: false, // Defer search index generation
-  workerPoolSize: 4, // Number of worker threads to utilize
+  workerPoolSize: 8, // Increase from 4 to 8 worker threads
   useBinaryProcessing: true, // Use binary processing methods when available
   streamResults: true, // Stream results as they become available
   immediateResponse: true, // Provide immediate UI feedback
   lowQualityPreview: true, // Generate low-quality previews initially
   cacheThumbnails: true, // Cache thumbnails for rapid display
+  aggressiveTimeout: 30000, // Shorter timeout to fail faster
+  useProgressiveRendering: true, // Add progressive rendering
+  useCacheForRepeatedFiles: true, // Cache processed results
 };
 
 // Map file extensions to source categories
 const fileExtensionMap: Record<string, string> = {
   pdf: 'PDF',
-  epub: 'Book',
+  epub: 'EPUB',
   html: 'Web',
   htm: 'Web',
   txt: 'Text',
@@ -36,7 +69,7 @@ const fileExtensionMap: Record<string, string> = {
 // Map MIME types to source categories as a fallback
 const mimeTypeMap: Record<string, string> = {
   'application/pdf': 'PDF',
-  'application/epub+zip': 'Book',
+  'application/epub+zip': 'EPUB',
   'text/html': 'Web',
   'text/plain': 'Text',
   'text/markdown': 'Note',
@@ -46,6 +79,14 @@ const mimeTypeMap: Record<string, string> = {
 interface DataStream {
   on: (event: string, callback: (data: unknown) => void) => void;
   [key: string]: unknown;
+}
+
+// Add these interfaces at the top
+interface EnhancedAxiosError extends Error {
+  code?: string;
+  config?: AxiosRequestConfig;
+  response?: AxiosResponse;
+  isAxiosError: boolean;
 }
 
 /**
@@ -85,6 +126,33 @@ export async function processUploadedFile(
   readerId?: string 
 }> {
   try {
+    // Check if the file has been processed recently
+    if (PERFORMANCE_CONFIG.useCacheForRepeatedFiles && !options.forceReprocess) {
+      const fingerprint = await getFileFingerprint(file);
+      const cachedResult = processedFilesCache.get(fingerprint);
+      
+      if (cachedResult && (Date.now() - cachedResult.timestamp) < CACHE_LIFETIME) {
+        console.log('Using cached processing result');
+        // Create a copy of the cached article with a new ID unless specified
+        const articleId = options.articleId || uuidv4();
+        const cachedArticle = { 
+          ...cachedResult.article,
+          id: articleId,
+          createdAt: Date.now(),
+        };
+        
+        // Update storage with cached article
+        updateArticle(cachedArticle);
+        
+        return {
+          status: 'success',
+          message: 'Retrieved from cache',
+          article: cachedArticle,
+          readerId: articleId
+        };
+      }
+    }
+    
     // Create a unique ID for the article
     const articleId = options.articleId || uuidv4();
     
@@ -114,8 +182,14 @@ export async function processUploadedFile(
     
     // For large PDFs (> 5MB) or non-EPUB/Text, use server-side parsing
     if ((fileType === 'PDF' && file.size > 5 * 1024 * 1024) || 
-        (fileType !== 'Book' && fileType !== 'Text' && fileType !== 'Note')) {
+        (fileType !== 'Book' && fileType !== 'EPUB' && fileType !== 'Text' && fileType !== 'Note')) {
       useServerParsing = true;
+    }
+    
+    // EPUB files should always be processed client-side,
+    // as the ePub.js library is better at handling them
+    if (fileType === 'Book' || fileType === 'EPUB') {
+      useServerParsing = false;
     }
     
     if (useServerParsing) {
@@ -211,8 +285,13 @@ async function processWithParserService(
       },
       // Use binary response type for faster processing
       responseType: PERFORMANCE_CONFIG.streamResults ? 'stream' : 'json',
-      // Set longer timeout for large files
-      timeout: Math.max(30000, file.size / 10000)
+      // Add network error detection
+      maxRedirects: 0,
+      transitional: {
+        clarifyTimeoutError: true
+      },
+      // Use aggressive timeout from PERFORMANCE_CONFIG
+      timeout: PERFORMANCE_CONFIG.aggressiveTimeout || 45000
     };
     
     // ENHANCEMENT 7: Use optimized endpoint based on file type
@@ -229,7 +308,15 @@ async function processWithParserService(
       progress: 30
     });
     
-    const response = await axios.post(endpoint, formData, uploadOptions);
+    // Attempt the server request with retry
+    const response = await withRetry(
+      () => axios.post(endpoint, formData, uploadOptions),
+      {
+        retries: 2,
+        retryDelay: 1000,
+        retryOn: [503, 504, 'ECONNABORTED', 'ETIMEDOUT', 'ERR_NETWORK']
+      }
+    );
     
     // ENHANCEMENT 8: Handle streaming responses for progressive UI updates
     if (PERFORMANCE_CONFIG.streamResults && response.data.on) {
@@ -290,8 +377,36 @@ async function processWithParserService(
       throw new Error(responseData.message || 'Error processing file on server');
     }
   } catch (error) {
-    console.error('Error with parser service:', error);
+    const axiosError = error as EnhancedAxiosError;
     
+    // Network connection errors - check if server is running
+    if (axiosError.isAxiosError && 
+        (axiosError.code === 'ECONNREFUSED' || 
+         axiosError.code === 'ERR_NETWORK' || 
+         /Connection refused/i.test(axiosError.message))) {
+      
+      console.warn('Parser service unavailable, falling back to browser processing');
+      
+      // Try browser-based processing as fallback
+      try {
+        return await processInBrowser(file, fileType, articleId);
+      } catch (fallbackError) {
+        console.error('Browser fallback processing also failed:', fallbackError);
+        return {
+          status: 'error',
+          message: 'Parser service unavailable and browser processing failed. Please check if the server is running on port 3000.',
+          readerId: articleId
+        };
+      }
+    }
+    
+    // Handle other types of errors
+    console.error(`API Error:`, {
+      message: axiosError.message,
+      code: axiosError.code,
+      status: axiosError.response?.status
+    });
+
     // Update article with error but preserve any progress
     const { getArticleById } = await import('@/utils/mockData');
     const article = getArticleById(articleId);
@@ -306,8 +421,32 @@ async function processWithParserService(
     
     return {
       status: 'error',
-      message: error instanceof Error ? error.message : 'Failed to process file using parser service'
+      message: `Processing failed: ${axiosError.message}`,
+      readerId: articleId
     };
+  }
+}
+
+// Add retry utility function
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  options: { retries: number; retryDelay: number; retryOn: (number | string)[] }
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    const shouldRetry = options.retries > 0 && 
+      (options.retryOn.includes((error as any).code) ||
+       options.retryOn.includes((error as any).response?.status));
+
+    if (shouldRetry) {
+      await new Promise(resolve => setTimeout(resolve, options.retryDelay));
+      return withRetry(fn, {
+        ...options,
+        retries: options.retries - 1
+      });
+    }
+    throw error;
   }
 }
 
@@ -421,10 +560,27 @@ async function processInBrowser(
     // Start content loading in background
     loadContentInBackground(file, fileType, articleId).catch(console.error);
     
+    // Get the updated article to return
+    const updatedArticle = getArticleById(articleId);
+    
+    // Cache the successful result if enabled
+    if (PERFORMANCE_CONFIG.useCacheForRepeatedFiles && updatedArticle) {
+      try {
+        const fingerprint = await getFileFingerprint(file);
+        processedFilesCache.set(fingerprint, {
+          article: updatedArticle,
+          timestamp: Date.now()
+        });
+        console.log('Cached processing result for future use');
+      } catch (cacheError) {
+        console.warn('Failed to cache result:', cacheError);
+      }
+    }
+    
     return {
       status: 'success',
       message: 'File uploaded and processing in the background',
-      article: getArticleById(articleId),
+      article: updatedArticle,
       readerId: articleId
     };
   } catch (error) {
@@ -541,9 +697,94 @@ async function processPDFWithMuPDF(buffer: ArrayBuffer, articleId: string, updat
 
 // New progressive EPUB processing
 async function processEPUBProgressively(file: File, articleId: string, updateProgress: (progress: number) => void): Promise<void> {
-  // Implementation for staged EPUB processing
-  // This would break down the parsing into smaller chunks
-  // to avoid UI freezing and provide progressive updates
+  try {
+    // Create a blob URL for the file
+    const fileUrl = URL.createObjectURL(file);
+    console.log('Created blob URL for EPUB:', fileUrl);
+    
+    // Update progress
+    updateProgress(50);
+    
+    // Get existing article to update
+    const { getArticleById } = await import('@/utils/mockData');
+    const existingArticle = getArticleById(articleId);
+    
+    if (!existingArticle) {
+      throw new Error('Article not found');
+    }
+    
+    // Update immediately with URL to ensure it's set
+    updateArticle({
+      ...existingArticle,
+      url: fileUrl,
+      progress: 60,
+      source: 'EPUB', // Standardize on 'EPUB' rather than 'Book'
+    });
+    
+    console.log('Updated article with URL:', fileUrl);
+    
+    // Basic validation - try to load the EPUB using epubjs
+    try {
+      const ePub = (await import('epubjs')).default;
+      const book = ePub(fileUrl);
+      
+      // Wait for the book to be ready and test metadata loading
+      await book.ready;
+      const metadata = await book.loaded.metadata;
+      
+      // Extract title and other metadata if available
+      let title = existingArticle.title;
+      let author = existingArticle.author;
+      
+      if (metadata) {
+        if (metadata.title) title = metadata.title;
+        if (metadata.creator) author = metadata.creator;
+      }
+      
+      // If we got here, the EPUB is valid - update with metadata
+      updateArticle({
+        ...existingArticle,
+        url: fileUrl, // Ensure URL is still set
+        title,
+        author,
+        progress: 90,
+      });
+      
+      updateProgress(90);
+    } catch (validationError) {
+      console.error('EPUB validation failed:', validationError);
+      throw new Error('The EPUB file appears to be corrupted or invalid');
+    }
+    
+    // Final update to mark as ready
+    updateProgress(100);
+    
+    // Get article again to ensure we have latest state
+    const updatedArticle = getArticleById(articleId);
+    
+    if (updatedArticle) {
+      // Final update with URL and ready status
+      updateArticle({
+        ...updatedArticle,
+        url: fileUrl, // Ensure URL is still set
+        progress: 100,
+        status: 'ready'
+      });
+    }
+  } catch (error) {
+    console.error('Error processing EPUB:', error);
+    const { getArticleById } = await import('@/utils/mockData');
+    const existingArticle = getArticleById(articleId);
+    
+    if (existingArticle) {
+      // Update with error
+      updateArticle({
+        ...existingArticle,
+        status: 'error',
+        errorMessage: error instanceof Error ? error.message : 'Unknown error processing EPUB'
+      });
+    }
+  }
 }
 
 // Add these helper functions for ultra-performance file handling

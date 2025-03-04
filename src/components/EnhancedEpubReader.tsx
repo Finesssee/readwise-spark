@@ -186,6 +186,14 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
       
       if (!viewerRef.current) return;
       
+      // Check if we have a valid URL
+      if (!article.url) {
+        console.error('Missing URL for EPUB file', article);
+        setError('Missing URL for EPUB file. Please try re-uploading the book.');
+        setIsLoading(false);
+        return;
+      }
+      
       // Initialize the book
       const epubBook = ePub(article.url);
       setBook(epubBook);
@@ -240,76 +248,115 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
         body: { 
           color: "#000", 
           background: "#fff",
-          "font-family": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif",
-          "line-height": "1.6",
-        } 
+          'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", sans-serif'
+        }
       });
+      
       rendition.themes.register("dark", { 
         body: { 
-          color: "#fff", 
-          background: "#121212",
-          "font-family": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif",
-          "line-height": "1.6",
-        } 
+          color: "#d4d4d4", 
+          background: "#1e1e1e",
+          'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", sans-serif'
+        }
       });
+      
+      // Apply theme based on dark mode preference
       rendition.themes.select(prefersDark ? "dark" : "light");
       
+      // Set rendition
       setRendition(rendition);
       
-      // Display book
-      await rendition.display();
+      // Display the first page
+      rendition.display().then(() => {
+        console.log('EPUB renderer initialized');
+        setIsLoading(false);
+      });
       
-      // Set up event listeners
-      rendition.on('relocated', (location: EPUBLocation) => {
-        const pageNumber = location.start.location || location.start.index || 0;
-        setCurrentPage(pageNumber);
+      // Set up event listeners for rendition
+      rendition.on("keydown", handleKeyDown);
+      rendition.on("relocated", (location: EPUBLocation) => {
+        // Update current page information
+        if (location?.start?.location) {
+          setCurrentPage(location.start.location);
+        }
         
-        // Get current chapter title
-        const spineItem = epubBook.spine.get(location.start.href);
-        if (spineItem) {
-          // Cast to avoid TypeScript errors with the epubjs API
-          const spineItemAny = spineItem as unknown;
-          if (typeof spineItemAny === 'object' && spineItemAny && 'then' in spineItemAny && typeof spineItemAny.then === 'function') {
-            spineItemAny.then((item: unknown) => {
-              if (item && typeof item === 'object' && 'title' in item) {
-                setCurrentChapter(item.title as string);
-              }
-            });
-          }
+        // Update current chapter
+        if (location?.start?.href) {
+          const title = getSpineItemTitle(location.start.href);
+          setCurrentChapter(title);
         }
       });
       
-      // Set up selection event
-      rendition.on('selected', (cfiRange: string, contents: Contents) => {
-        if (rendition.getRange(cfiRange)) {
-          const range = rendition.getRange(cfiRange);
-          if (range) {
-            const text = contents.window.getSelection()?.toString() || '';
+      // Text selection handling
+      rendition.on("selected", (cfiRange: string, contents: any) => {
+        const range = contents.range(cfiRange);
+        if (range) {
+          const text = range.toString();
+          if (text && text.trim().length > 0) {
+            // Get position for highlight menu
             const rect = range.getBoundingClientRect();
             
-            setTextSelection({
-              x: rect.left + rect.width / 2,
-              y: rect.top,
-              text,
-              cfi: cfiRange
-            });
-            
-            setShowHighlightMenu(true);
+            if (rect) {
+              // Only show menu for non-empty selections
+              setTextSelection({
+                x: rect.left + (rect.width / 2),
+                y: rect.top - 10,
+                text,
+                cfi: cfiRange
+              });
+              
+              setShowHighlightMenu(true);
+            }
           }
         }
       });
       
-      // Loading complete
-      setIsLoading(false);
+      // Hide highlight menu when clicking elsewhere
+      rendition.on("click", () => {
+        if (showHighlightMenu) {
+          setShowHighlightMenu(false);
+        }
+      });
       
-      // Generate locations in the background
-      setTimeout(() => {
-        generateLocations(epubBook);
-      }, 1000);
+      // Set up locations for navigation
+      if (epubBook.locations && typeof epubBook.locations.generate === 'function') {
+        // Type assertion for locations
+        const locationsWithGenerate = epubBook.locations as unknown as LocationsWithGenerate;
+        
+        // Use a worker if available for generating locations
+        setLoadingLocations(true);
+        try {
+          await locationsWithGenerate.generate(1024);
+          setTotalPages(locationsWithGenerate.total);
+        } catch (err) {
+          console.error('Error generating EPUB locations:', err);
+        } finally {
+          setLoadingLocations(false);
+        }
+      }
+      
+      // On cleanup
+      return () => {
+        if (epubBook) {
+          console.log('Cleaning up EPUB reader...');
+          try {
+            if (rendition) {
+              rendition.off("keydown", handleKeyDown);
+              rendition.off("selected");
+              rendition.off("relocated");
+              rendition.off("click");
+            }
+            
+            epubBook.destroy();
+          } catch (e) {
+            console.error('Error during EPUB cleanup:', e);
+          }
+        }
+      };
     } catch (error) {
       console.error('Error initializing EPUB reader:', error);
+      setError(error instanceof Error ? error.message : 'Unknown error initializing reader');
       setIsLoading(false);
-      setError(error instanceof Error ? error.message : 'Failed to load the EPUB book');
     }
   }, [article.url, fontSize, generateLocations]);
   
@@ -795,16 +842,19 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
             )}
             
             {error ? (
-              <div className="flex items-center justify-center h-full w-full text-center p-4">
-                <div>
-                  <p className="text-red-500 mb-2">{error}</p>
-                  <button 
-                    onClick={initializeReader}
-                    className="px-4 py-2 bg-pink-600 text-white rounded-md hover:bg-pink-700"
-                  >
-                    Try Again
-                  </button>
-                </div>
+              <div className="w-full h-full flex flex-col items-center justify-center text-center p-6 bg-background rounded-lg">
+                <FileText className="h-14 w-14 text-destructive mb-4" />
+                <h2 className="text-xl font-semibold mb-2">Error Loading EPUB</h2>
+                <p className="text-muted-foreground mb-4">{error}</p>
+                <p className="text-sm text-muted-foreground max-w-md">
+                  The file may be corrupted or in an unsupported format. Try re-uploading the file or converting it to a standard EPUB format.
+                </p>
+                <button 
+                  onClick={() => window.history.back()}
+                  className="mt-6 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+                >
+                  Go Back
+                </button>
               </div>
             ) : (
               <div 

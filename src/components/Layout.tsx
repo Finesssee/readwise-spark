@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import Header from '@/components/Header';
 import AppSidebar from '@/components/AppSidebar';
-import GlobalUploadButton from '@/components/GlobalUploadButton';
 import { cn } from '@/lib/utils';
 
 const Layout = () => {
@@ -69,7 +68,6 @@ const Layout = () => {
         <main className="flex-grow overflow-auto">
           <Outlet />
         </main>
-        <GlobalUploadButton />
       </div>
     </div>
   );
