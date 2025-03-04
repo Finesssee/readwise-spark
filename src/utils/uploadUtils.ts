@@ -5,6 +5,7 @@ import { updateArticle } from '@/utils/mockData';
 import { extractMetadata } from '@/utils/metadata';
 import axios, { AxiosProgressEvent, AxiosRequestConfig, AxiosResponse } from 'axios';
 import JSZip from 'jszip';
+import { processWithHighPerformanceParser, supportsFileType } from './parserIntegration';
 
 // Define the FileProcessingOptions interface here
 export interface FileProcessingOptions {
@@ -12,6 +13,7 @@ export interface FileProcessingOptions {
   forceReprocess?: boolean;
   skipCache?: boolean;
   priority?: 'high' | 'normal' | 'low';
+  skipHighPerformanceParser?: boolean;
 }
 
 // Add caching for processed files
@@ -191,6 +193,18 @@ export async function processUploadedFile(
     
     // Update progress to indicate we've started
     updateArticle({ ...article, progress: 10 });
+    
+    // NEW: Check if we can use the high-performance parser for this file type
+    if (supportsFileType(fileType) && !options.skipHighPerformanceParser) {
+      console.log(`Using high-performance parser for ${fileType} file`);
+      return await processWithHighPerformanceParser(file, articleId, (progress) => {
+        // This progress handler is called by the high-performance parser
+        updateArticle({ ...article, progress });
+      });
+    }
+    
+    // If not using high-performance parser, continue with existing logic
+    console.log(`Using legacy parser for ${fileType} file`);
     
     // Choose the optimal parsing strategy based on file type and size
     let useServerParsing = false;
@@ -559,9 +573,42 @@ async function processInBrowser(
       throw new Error('Article not found');
     }
     
-    // Update progress
+    // OPTIMIZATION: Update progress faster
     updateArticle({ ...article, progress: 20, status: 'processing' });
     
+    // OPTIMIZATION: Special fast path for EPUB files
+    if (fileType === 'EPUB') {
+      // Create URL immediately
+      const fileUrl = URL.createObjectURL(file);
+      
+      // Extract basic metadata in parallel with UI updates
+      updateArticle({
+        ...article,
+        url: fileUrl, // Set URL immediately
+        progress: 40,
+        status: 'processing',
+      });
+      
+      // Kick off background processing without waiting
+      setTimeout(() => {
+        loadContentInBackground(file, fileType, articleId).catch(console.error);
+      }, 0);
+      
+      // Return immediately to show the reader UI
+      return {
+        status: 'success',
+        message: 'EPUB loaded and processing in the background',
+        article: {
+          ...article,
+          url: fileUrl,
+          progress: 50,
+          status: 'ready',
+        },
+        readerId: articleId
+      };
+    }
+    
+    // For non-EPUB files, use existing flow with some optimizations
     // Use the existing metadata extraction for client-side processing
     const metadata = await extractMetadata(file, fileType);
     
@@ -572,8 +619,10 @@ async function processInBrowser(
       ...metadata
     });
     
-    // Start content loading in background
-    loadContentInBackground(file, fileType, articleId).catch(console.error);
+    // Start content loading in background without waiting for it to complete
+    setTimeout(() => {
+      loadContentInBackground(file, fileType, articleId).catch(console.error);
+    }, 0);
     
     // Get the updated article to return
     const updatedArticle = getArticleById(articleId);
@@ -945,13 +994,34 @@ async function extractEPUBCover(file: File): Promise<string | null> {
           
           try {
             await book.ready;
-            if (!book.cover) {
+            // Check for cover in the spine
+            let coverPath = null;
+            
+            // Access cover via different methods since the type definition may be missing it
+            // @ts-ignore - Cover property exists in epubjs but might not be in type definitions
+            if (book.cover) {
+              // @ts-ignore - Access the property despite TypeScript warning
+              coverPath = book.cover;
+            } else if (book.package && book.package.cover) {
+              coverPath = book.package.cover;
+            } else {
+              // Try to find cover in resources
+              const resources = book.resources?.resources;
+              const coverResource = resources && Object.values(resources).find(
+                (resource: any) => resource.href && resource.href.includes('cover')
+              );
+              if (coverResource) {
+                coverPath = coverResource.href;
+              }
+            }
+            
+            if (!coverPath) {
               URL.revokeObjectURL(fileUrl);
               resolve(null);
               return;
             }
             
-            const coverUrl = await book.archive.createUrl(book.cover, { base64: false });
+            const coverUrl = await book.archive.createUrl(coverPath, { base64: false });
             URL.revokeObjectURL(fileUrl);
             resolve(coverUrl);
           } catch (error) {
