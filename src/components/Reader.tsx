@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Article, Highlight } from '@/lib/types';
-import { ArrowLeft, Bookmark, Share2, MoreHorizontal, Clock, X, Tag, MessageSquare, FileIcon as FileIconLucide, BookIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, ChevronLeftSquare, ChevronRightSquare } from 'lucide-react';
+import { ArrowLeft, Bookmark, Share2, MoreHorizontal, Clock, X, Tag, MessageSquare, FileIcon as FileIconLucide, BookIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, ChevronLeftSquare, ChevronRightSquare, Maximize2, Minimize2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import NoteDialog from './NoteDialog';
 import TagDialog from './TagDialog';
 import ePub from 'epubjs';
+import PDFReader from './PDFReader';
+import EnhancedEpubReader from './EnhancedEpubReader';
 
 interface ReaderProps {
   article: Article;
@@ -401,46 +403,52 @@ const EpubReader = ({ url, title }: { url: string, title: string }) => {
 
 // Helper to render file view based on source type
 const FileViewer = ({ article }: { article: Article }) => {
+  // For PDF files, use the custom PDFReader component
   if (article.source === 'PDF') {
-    return (
-      <div className="w-full h-full flex flex-col items-center">
-        <div className="bg-background w-full text-center">
-          <div className="flex justify-between items-center mb-4">
-            <FileIconLucide className="h-6 w-6 text-primary" />
-            <h3 className="text-lg font-medium flex-grow text-center">{article.title}</h3>
-          </div>
-          <iframe 
-            src={article.url} 
-            className="w-full h-[80vh] border rounded-lg"
-            title={article.title}
-          />
-        </div>
-      </div>
-    );
+    return <PDFReader article={article} />;
   } else if (article.source === 'Book') {
-    // Use the new EPUB reader component
-    return <EpubReader url={article.url} title={article.title} />;
+    // Use the enhanced EPUB reader component with immersive mode
+    return <EnhancedEpubReader article={article} />;
   } else if (article.source === 'Text' || article.source === 'Note') {
-    // For text files, we can display the content directly in a full-page reader format
+    // Enhanced text viewer with immersive mode
+    const [isTextFullscreen, setIsTextFullscreen] = useState(false);
+    
     return (
-      <div className="w-full">
-        <div className="bg-background w-full">
-          <div className="flex justify-between items-center mb-4">
-            <FileIconLucide className="h-6 w-6 text-primary" />
-            <h3 className="text-lg font-medium flex-grow text-center">{article.title}</h3>
+      <div 
+        className={`transition-all duration-300 ease-in-out ${
+          isTextFullscreen ? 'fixed inset-0 z-50 bg-background overflow-auto' : 'w-full'
+        }`}
+      >
+        <div className={`${isTextFullscreen ? 'sticky top-0 z-10 backdrop-blur-md bg-background/70' : ''}`}>
+          <div className="flex justify-between items-center p-4">
+            <div className="flex items-center">
+              <FileIconLucide className="h-5 w-5 text-primary" />
+              <h3 className="text-lg font-medium ml-2">{article.title}</h3>
+            </div>
+            
+            <button 
+              onClick={() => setIsTextFullscreen(!isTextFullscreen)}
+              className="p-2 rounded-full hover:bg-secondary/80 transition-colors"
+              title={isTextFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            >
+              {isTextFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+            </button>
           </div>
-          <div className="prose prose-lg prose-slate max-w-none dark:prose-invert bg-white dark:bg-zinc-900 p-8 rounded-lg min-h-[80vh]">
-            {!article.content ? (
-              <div className="flex justify-center items-center h-[70vh]">
-                <div className="animate-pulse text-center">
-                  <div className="h-8 w-8 rounded-full border-4 border-t-primary border-primary/30 animate-spin mx-auto mb-4"></div>
-                  <p className="text-muted-foreground">Loading content...</p>
-                </div>
+        </div>
+        
+        <div className={`prose prose-lg prose-slate max-w-none dark:prose-invert bg-white dark:bg-zinc-900 p-8 rounded-lg ${
+          isTextFullscreen ? 'min-h-screen' : 'min-h-[80vh]'
+        }`}>
+          {!article.content ? (
+            <div className="flex justify-center items-center h-[70vh]">
+              <div className="animate-pulse text-center">
+                <div className="h-8 w-8 rounded-full border-4 border-t-primary border-primary/30 animate-spin mx-auto mb-4"></div>
+                <p className="text-muted-foreground">Loading content...</p>
               </div>
-            ) : (
-              <pre className="whitespace-pre-wrap overflow-x-auto">{article.content}</pre>
-            )}
-          </div>
+            </div>
+          ) : (
+            <pre className="whitespace-pre-wrap overflow-x-auto">{article.content}</pre>
+          )}
         </div>
       </div>
     );
@@ -448,7 +456,7 @@ const FileViewer = ({ article }: { article: Article }) => {
     // For web content or any other type, use the standard article display
     return null;
   } else {
-    // Unknown file type - simplified view without download
+    // Unknown file type - simplified view
     return (
       <div className="w-full h-full flex flex-col items-center">
         <div className="bg-background w-full text-center">
@@ -698,12 +706,41 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
   }, [saved, article, onUpdateArticle]);
 
   // Toggle fullscreen mode
-  const toggleFullscreen = useCallback(() => {
+  const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen);
-  }, [isFullscreen]);
+  };
+
+  // Add CSS class for reader fullscreen mode when component mounts
+  useEffect(() => {
+    // Add the CSS style to head when the component mounts
+    const styleElement = document.createElement('style');
+    styleElement.innerHTML = `
+      .reader-fullscreen-mode {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        z-index: 50 !important;
+        background: var(--background) !important;
+        overflow: auto !important;
+      }
+    `;
+    document.head.appendChild(styleElement);
+
+    // Clean up the style when component unmounts
+    return () => {
+      document.head.removeChild(styleElement);
+    };
+  }, []);
+
+  // Don't show the reader header or other elements when viewing PDFs
+  if (article.source === 'PDF') {
+    return <PDFReader article={article} />;
+  }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className={`min-h-screen flex flex-col ${isFullscreen ? 'reader-fullscreen-mode' : ''}`}>
       {/* Reader Header - minimalist design similar to Readwise */}
       <div className={`sticky top-0 z-40 glass backdrop-blur-md border-b transition-opacity duration-200 ${isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'}`}>
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
@@ -732,52 +769,9 @@ const Reader = ({ article, onUpdateArticle }: ReaderProps) => {
       </div>
       
       {/* Article Content - Full-page reading experience */}
-      <div className={`flex-1 pb-10 pt-4 ${isFullscreen ? 'pt-0' : ''}`}>
-        <div className={`max-w-4xl mx-auto px-4 transition-all duration-200 ${isFullscreen ? 'max-w-6xl' : ''}`}>
-          {/* Title and metadata */}
-          <div className={`mb-6 transition-opacity duration-200 ${isFullscreen ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'}`}>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight mb-3 text-balance">
-              {article.title}
-            </h1>
-            
-            <div className="flex flex-wrap items-center text-sm text-muted-foreground mb-4">
-              {article.author && (
-                <span className="after:content-['•'] after:mx-2 after:text-muted-foreground/50">
-                  {article.author}
-                </span>
-              )}
-              <span className="after:content-['•'] after:mx-2 after:text-muted-foreground/50">
-                {article.source}
-              </span>
-              <span className="flex items-center">
-                <Clock className="inline-block w-3.5 h-3.5 mr-1" />
-                {article.readingTime} min read
-              </span>
-            </div>
-            
-            {article.imageUrl && (
-              <div className="w-full aspect-video overflow-hidden rounded-lg mb-6">
-                <img 
-                  src={article.imageUrl} 
-                  alt={article.title} 
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
-          </div>
-          
-          {/* File viewer for special file types */}
+      <div className={`flex-grow py-8 px-4 ${isFullscreen ? 'px-0 py-0' : ''}`}>
+        <div className={`container mx-auto ${isFullscreen ? 'max-w-none mx-0' : 'max-w-4xl'}`}>
           <FileViewer article={article} />
-          
-          {/* Regular content for web articles */}
-          {(article.source === 'Web' || (article.source !== 'PDF' && article.source !== 'Book' && article.source !== 'Text' && article.source !== 'Note')) && (
-            <div 
-              ref={contentRef}
-              className="reader-content prose prose-lg prose-slate max-w-none dark:prose-invert"
-              onMouseUp={handleHighlight}
-              dangerouslySetInnerHTML={{ __html: article.content }}
-            />
-          )}
         </div>
       </div>
 

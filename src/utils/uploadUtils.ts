@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Article } from '@/lib/types';
+import { Article, FileProcessingOptions } from '@/lib/types';
 import { updateArticle } from '@/utils/mockData';
+import { extractMetadata } from '@/utils/metadata';
 
 // Map file extensions to source categories
 const fileExtensionMap: Record<string, string> = {
@@ -52,7 +53,15 @@ export function detectFileType(file: File): string | null {
 /**
  * Process an uploaded file and create an Article from it
  */
-export async function processUploadedFile(file: File): Promise<{ status: 'success' | 'error'; message: string; article?: Article; readerId?: string }> {
+export async function processUploadedFile(
+  file: File, 
+  options: FileProcessingOptions = {}
+): Promise<{ 
+  status: 'success' | 'error'; 
+  message: string; 
+  article?: Article; 
+  readerId?: string 
+}> {
   try {
     // Early validations - fail fast
     if (file.size === 0) {
@@ -88,9 +97,8 @@ export async function processUploadedFile(file: File): Promise<{ status: 'succes
     // Generate a unique ID for this article
     const articleId = uuidv4();
     
-    // Create the article immediately with minimal content for fast navigation
-    // Content will be loaded asynchronously in the reader component
-    const article: Article = {
+    // Create base article with minimal information for fast loading
+    let article: Article = {
       id: articleId,
       title: file.name.replace(/\.[^/.]+$/, ''), // Remove file extension
       author: 'Uploaded by user',
@@ -107,11 +115,38 @@ export async function processUploadedFile(file: File): Promise<{ status: 'succes
       createdAt: new Date().toISOString()
     };
     
-    // Add the article using the update function
+    // For quick initial display, add the article first with basic info
     updateArticle(article);
     
-    // Start loading content in the background
-    loadContentInBackground(file, fileType, articleId);
+    // Start metadata extraction in the background
+    // We want to navigate to the reader ASAP, so do this without blocking
+    setTimeout(async () => {
+      try {
+        // Extract metadata - this could take time for large files
+        const metadataStart = performance.now();
+        console.log(`Starting metadata extraction for ${fileType} file: ${file.name}`);
+        
+        const metadata = await extractMetadata(file, fileType);
+        console.log(`Metadata extraction completed in ${Math.round(performance.now() - metadataStart)}ms`);
+        
+        // Update article with extracted metadata
+        const updatedArticle: Article = {
+          ...article,
+          ...metadata,
+          // Don't overwrite the URL which is the blob URL we created
+          url: article.url
+        };
+        
+        // Update the article with metadata
+        updateArticle(updatedArticle);
+        
+        // Load content for text-based files
+        await loadContentInBackground(file, fileType, articleId);
+        
+      } catch (error) {
+        console.error('Error during background processing:', error);
+      }
+    }, 10);
     
     return {
       status: 'success',
@@ -144,6 +179,13 @@ async function loadContentInBackground(file: File, fileType: string, articleId: 
       } else {
         content = await file.text();
       }
+    } else if (fileType === 'PDF' && file.size < 10 * 1024 * 1024) {
+      // For smaller PDFs, attempt to extract text for search/selection
+      // This will be done via PDF.js in the reader component
+      content = `[PDF file text content will be extracted during viewing]`;
+    } else if (fileType === 'Book') {
+      // For EPUB files, we'll load and parse chapters during viewing
+      content = `[EPUB content will be loaded during viewing]`;
     } else {
       // For binary files like PDF, EPUB
       content = `[This is a ${fileType} file that was uploaded]`;
