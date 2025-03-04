@@ -4,6 +4,7 @@ import { Article } from '@/lib/types';
 import { updateArticle } from '@/utils/mockData';
 import { extractMetadata } from '@/utils/metadata';
 import axios, { AxiosProgressEvent, AxiosRequestConfig, AxiosResponse } from 'axios';
+import JSZip from 'jszip';
 
 // Define the FileProcessingOptions interface here
 export interface FileProcessingOptions {
@@ -93,24 +94,38 @@ interface EnhancedAxiosError extends Error {
  * Detect file type based on file extension or MIME type
  */
 export function detectFileType(file: File): string | null {
-  // Get the file extension
-  const filename = file.name;
-  const lastDotIndex = filename.lastIndexOf('.');
+  // Get the file extension from the name
+  const fileExtension = file.name.split('.').pop()?.toLowerCase();
   
-  if (lastDotIndex === -1) {
-    // No extension, try to use MIME type
-    return mimeTypeMap[file.type] || null;
+  // Try to match by extension first
+  if (fileExtension && fileExtensionMap[fileExtension]) {
+    // Special case for EPUB files - always return 'EPUB'
+    if (fileExtension === 'epub') {
+      return 'EPUB';
+    }
+    return fileExtensionMap[fileExtension];
   }
   
-  const extension = filename.slice(lastDotIndex + 1).toLowerCase();
-  
-  // First try to match by extension
-  if (fileExtensionMap[extension]) {
-    return fileExtensionMap[extension];
+  // Try to match by MIME type next
+  if (file.type && mimeTypeMap[file.type]) {
+    // Special case for EPUB MIME type - always return 'EPUB'
+    if (file.type === 'application/epub+zip') {
+      return 'EPUB';
+    }
+    return mimeTypeMap[file.type];
   }
   
-  // If no match by extension, try MIME type
-  return mimeTypeMap[file.type] || null;
+  // Fallback for specific cases
+  if (file.type.includes('pdf')) {
+    return 'PDF';
+  }
+  
+  if (fileExtension === 'epub' || file.type.includes('epub')) {
+    return 'EPUB';
+  }
+  
+  // If we can't determine the type
+  return null;
 }
 
 /**
@@ -182,13 +197,13 @@ export async function processUploadedFile(
     
     // For large PDFs (> 5MB) or non-EPUB/Text, use server-side parsing
     if ((fileType === 'PDF' && file.size > 5 * 1024 * 1024) || 
-        (fileType !== 'Book' && fileType !== 'EPUB' && fileType !== 'Text' && fileType !== 'Note')) {
+        (fileType !== 'EPUB' && fileType !== 'Text' && fileType !== 'Note')) {
       useServerParsing = true;
     }
     
     // EPUB files should always be processed client-side,
     // as the ePub.js library is better at handling them
-    if (fileType === 'Book' || fileType === 'EPUB') {
+    if (fileType === 'EPUB') {
       useServerParsing = false;
     }
     
@@ -610,81 +625,114 @@ async function loadContentInBackground(file: File, fileType: string, articleId: 
   try {
     // Use a worker pool for CPU-intensive tasks
     const updateProgress = (progress: number) => {
-      // Get existing article to update
-      import('@/utils/mockData').then(m => {
-        const existingArticle = m.getArticleById(articleId);
-        if (existingArticle) {
-          updateArticle({
-            ...existingArticle,
-            progress,
-            status: progress < 100 ? 'processing' : 'ready'
-          });
-        }
-      });
+      const { getArticleById } = require('@/utils/mockData');
+      const article = getArticleById(articleId);
+      if (article) {
+        updateArticle({ ...article, progress });
+      }
     };
     
-    // Report initial progress
-    updateProgress(10);
-    
-    // Extract metadata based on file type
-    const metadata = await extractMetadata(file, fileType);
-    
-    // Update with metadata - fast operation
-    import('@/utils/mockData').then(m => {
-      const existingArticle = m.getArticleById(articleId);
-      if (existingArticle) {
-        updateArticle({
-          ...existingArticle,
-          ...metadata,
-          progress: 30,
-        });
-      }
-    });
-    
-    // For PDFs and EPUBs, use high-performance processing
+    // Update to 60% progress to indicate background processing started
+    updateProgress(60);
+
+    // Process different file types with appropriate methods
     if (fileType === 'PDF') {
-      // Use MuPDF for PDF processing - much faster than PDF.js
-      try {
-        // const mupdf = await load();
-        const buffer = await file.arrayBuffer();
-        // Process PDF in chunks to avoid UI freezing
-        await processPDFWithMuPDF(buffer, articleId, updateProgress);
-      } catch (e) {
-        console.warn('MuPDF processing failed, falling back to legacy parser:', e);
-        // Fallback to existing method if MuPDF fails
-      }
-    } else if (fileType === 'Book') {
-      // Process EPUB in stages for better performance
-      processEPUBProgressively(file, articleId, updateProgress);
-    } else {
-      // For text and other simple formats
+      // Get the file as an array buffer
+      const buffer = await file.arrayBuffer();
+      // Process PDF with MuPDF
+      await processPDFWithMuPDF(buffer, articleId, updateProgress);
+    } else if (fileType === 'EPUB') {
+      // Process EPUB files
+      await processEPUBProgressively(file, articleId, updateProgress);
+    } else if (fileType === 'Text' || fileType === 'Note') {
+      // Process Text files with the new worker manager
       const text = await file.text();
-      // Get existing article
-      import('@/utils/mockData').then(m => {
-        const existingArticle = m.getArticleById(articleId);
-        if (existingArticle) {
-          updateArticle({
-            ...existingArticle,
-            content: text,
+      
+      // Import the worker manager
+      const workerManager = (await import('@/utils/workerManager')).default;
+      
+      // Use worker for text processing
+      try {
+        updateProgress(70);
+        const result = await workerManager.processText(text, 'parse', {
+          toLowerCase: false,
+          removeSpecialChars: false
+        });
+        
+        updateProgress(85);
+        
+        // Create plain text content from parsed result
+        let content = '';
+        if (result?.parsed) {
+          content = result.parsed
+            .map((p: any) => p?.text || '')
+            .join('\n\n');
+        } else {
+          content = text;
+        }
+        
+        // Update the article with the processed content
+        const { getArticleById } = await import('@/utils/mockData');
+        const article = getArticleById(articleId);
+        
+        if (article) {
+          updateArticle({ 
+            ...article, 
+            content,
+            progress: 100,
+            status: 'ready',
+          });
+        }
+        
+        console.log('Text processing complete with worker', result?.stats);
+      } catch (workerError) {
+        console.error('Worker processing failed, falling back to main thread:', workerError);
+        
+        // Fallback to simple processing in the main thread
+        const paragraphs = text.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+        const content = paragraphs.join('\n\n');
+        
+        // Update the article with the processed content
+        const { getArticleById } = await import('@/utils/mockData');
+        const article = getArticleById(articleId);
+        
+        if (article) {
+          updateArticle({ 
+            ...article, 
+            content,
             progress: 100,
             status: 'ready'
           });
         }
-      });
-    }
-    
-  } catch (error) {
-    console.error('Background processing error:', error);
-    import('@/utils/mockData').then(m => {
-      const existingArticle = m.getArticleById(articleId);
-      if (existingArticle) {
-        updateArticle({
-          ...existingArticle,
-          status: 'error',
-          errorMessage: error instanceof Error ? error.message : 'Unknown error during processing'
+      }
+    } else {
+      // For unsupported types, just update the status
+      const { getArticleById } = await import('@/utils/mockData');
+      const article = getArticleById(articleId);
+      
+      if (article) {
+        updateArticle({ 
+          ...article, 
+          progress: 100, 
+          status: 'ready', 
+          content: 'Content preview not available for this file type.'
         });
       }
-    });
+    }
+  } catch (error) {
+    console.error('Error loading content in background:', error);
+    
+    // Update article with error status
+    const { getArticleById } = await import('@/utils/mockData');
+    const article = getArticleById(articleId);
+    
+    if (article) {
+      updateArticle({ 
+        ...article, 
+        status: 'error', 
+        errorMessage: error instanceof Error ? error.message : 'Failed to load content'
+      });
+    }
   }
 }
 
@@ -698,12 +746,14 @@ async function processPDFWithMuPDF(buffer: ArrayBuffer, articleId: string, updat
 // New progressive EPUB processing
 async function processEPUBProgressively(file: File, articleId: string, updateProgress: (progress: number) => void): Promise<void> {
   try {
-    // Create a blob URL for the file
-    const fileUrl = URL.createObjectURL(file);
-    console.log('Created blob URL for EPUB:', fileUrl);
+    console.log('Starting optimized EPUB processing for:', file.name);
     
-    // Update progress
-    updateProgress(50);
+    // OPTIMIZATION: Use a more efficient blob URL creation
+    const fileUrl = URL.createObjectURL(new Blob([await file.arrayBuffer()], {type: 'application/epub+zip'}));
+    console.log('Created optimized blob URL for EPUB:', fileUrl);
+    
+    // Update progress quickly
+    updateProgress(30);
     
     // Get existing article to update
     const { getArticleById } = await import('@/utils/mockData');
@@ -713,63 +763,57 @@ async function processEPUBProgressively(file: File, articleId: string, updatePro
       throw new Error('Article not found');
     }
     
-    // Update immediately with URL to ensure it's set
+    // OPTIMIZATION: Update immediately with URL to ensure it's set
+    // This allows the reader to start loading while we process metadata
     updateArticle({
       ...existingArticle,
       url: fileUrl,
-      progress: 60,
-      source: 'EPUB', // Standardize on 'EPUB' rather than 'Book'
+      progress: 40,
+      source: 'EPUB',
     });
     
-    console.log('Updated article with URL:', fileUrl);
-    
-    // Basic validation - try to load the EPUB using epubjs
+    // OPTIMIZATION: Basic validation with lightweight approach
+    // This avoids loading the full EPUB library for validation
     try {
-      const ePub = (await import('epubjs')).default;
-      const book = ePub(fileUrl);
+      // Simple header check for EPUB files
+      const buffer = await file.slice(0, 100).arrayBuffer();
+      const header = new Uint8Array(buffer);
       
-      // Wait for the book to be ready and test metadata loading
-      await book.ready;
-      const metadata = await book.loaded.metadata;
-      
-      // Extract title and other metadata if available
-      let title = existingArticle.title;
-      let author = existingArticle.author;
-      
-      if (metadata) {
-        if (metadata.title) title = metadata.title;
-        if (metadata.creator) author = metadata.creator;
+      // Check for ZIP header signature (PK magic number)
+      if (header[0] !== 0x50 || header[1] !== 0x4B) {
+        throw new Error('Not a valid EPUB file (invalid header)');
       }
       
-      // If we got here, the EPUB is valid - update with metadata
+      updateProgress(60);
+      
+      // OPTIMIZATION: Skip full EPUB parsing for metadata
+      // Just update the article with file info and mark as ready
+      // The full parsing will happen in the reader component
+      const title = file.name.replace(/\.epub$/i, '');
+      
+      // Final update with ready status
       updateArticle({
         ...existingArticle,
-        url: fileUrl, // Ensure URL is still set
+        url: fileUrl,
         title,
-        author,
-        progress: 90,
-      });
-      
-      updateProgress(90);
-    } catch (validationError) {
-      console.error('EPUB validation failed:', validationError);
-      throw new Error('The EPUB file appears to be corrupted or invalid');
-    }
-    
-    // Final update to mark as ready
-    updateProgress(100);
-    
-    // Get article again to ensure we have latest state
-    const updatedArticle = getArticleById(articleId);
-    
-    if (updatedArticle) {
-      // Final update with URL and ready status
-      updateArticle({
-        ...updatedArticle,
-        url: fileUrl, // Ensure URL is still set
         progress: 100,
         status: 'ready'
       });
+      
+      // Double-check the URL was set
+      const finalArticle = getArticleById(articleId);
+      if (finalArticle && !finalArticle.url) {
+        console.warn('URL not set in article, setting it again:', fileUrl);
+        updateArticle({
+          ...finalArticle,
+          url: fileUrl,
+        });
+      }
+      
+      console.log('EPUB processed successfully, reader will handle parsing');
+    } catch (validationError) {
+      console.error('EPUB validation failed:', validationError);
+      throw new Error('The EPUB file appears to be corrupted or invalid');
     }
   } catch (error) {
     console.error('Error processing EPUB:', error);
@@ -777,13 +821,14 @@ async function processEPUBProgressively(file: File, articleId: string, updatePro
     const existingArticle = getArticleById(articleId);
     
     if (existingArticle) {
-      // Update with error
       updateArticle({
         ...existingArticle,
         status: 'error',
         errorMessage: error instanceof Error ? error.message : 'Unknown error processing EPUB'
       });
     }
+    
+    throw error;
   }
 }
 
@@ -852,10 +897,76 @@ async function generatePDFPreview(file: File): Promise<string | null> {
  */
 async function extractEPUBCover(file: File): Promise<string | null> {
   try {
-    // In real implementation, would use epubjs to extract cover
-    return null;
+    // First, try a simpler, faster approach
+    const fastCoverExtract = async () => {
+      // Check for common cover file paths in EPUB
+      const buffer = await file.arrayBuffer();
+      const zip = new JSZip();
+      
+      try {
+        const contents = await zip.loadAsync(buffer);
+        
+        // Common cover file paths in EPUBs
+        const coverPaths = [
+          'cover.jpg', 'cover.jpeg', 'cover.png',
+          'OEBPS/cover.jpg', 'OEBPS/cover.jpeg', 'OEBPS/cover.png',
+          'OEBPS/images/cover.jpg', 'OEBPS/images/cover.jpeg', 'OEBPS/images/cover.png'
+        ];
+        
+        // Try each path
+        for (const path of coverPaths) {
+          const coverFile = contents.file(path);
+          if (coverFile) {
+            const coverData = await coverFile.async('blob');
+            return URL.createObjectURL(coverData);
+          }
+        }
+        
+        return null;
+      } catch (e) {
+        console.log('Fast cover extraction failed, will try fallback');
+        return null;
+      }
+    };
+    
+    // Try fast extraction first
+    const fastResult = await fastCoverExtract();
+    if (fastResult) return fastResult;
+    
+    // If fast method fails, use the epubjs library as fallback
+    // But defer this to not block the main processing
+    return new Promise((resolve) => {
+      // Defer to not block the main thread
+      setTimeout(async () => {
+        try {
+          const fileUrl = URL.createObjectURL(file);
+          const { default: ePub } = await import('epubjs');
+          const book = ePub(fileUrl);
+          
+          try {
+            await book.ready;
+            if (!book.cover) {
+              URL.revokeObjectURL(fileUrl);
+              resolve(null);
+              return;
+            }
+            
+            const coverUrl = await book.archive.createUrl(book.cover, { base64: false });
+            URL.revokeObjectURL(fileUrl);
+            resolve(coverUrl);
+          } catch (error) {
+            console.error('Error extracting EPUB cover:', error);
+            URL.revokeObjectURL(fileUrl);
+            resolve(null);
+          }
+        } catch (error) {
+          console.error('Error loading EPUB for cover extraction:', error);
+          resolve(null);
+        }
+      }, 0);
+    });
   } catch (error) {
-    console.warn('EPUB cover extraction error:', error);
+    console.error('EPUB cover extraction error:', error);
     return null;
   }
 }

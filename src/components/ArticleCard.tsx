@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { Bookmark, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Article } from '@/lib/types';
+import { CardFooter } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
 interface ArticleCardProps {
   article: Article;
@@ -81,6 +83,26 @@ const ArticleCard = ({ article, view = 'grid' }: ArticleCardProps) => {
             </div>
           )}
         </div>
+
+        <CardFooter className="pt-1">
+          <div className="flex justify-between items-center w-full text-xs text-muted-foreground">
+            <span>{article.date}</span>
+            {Array.isArray(article.tags) && article.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 justify-end">
+                {article.tags.slice(0, 2).map((tag, index) => (
+                  <Badge key={index} variant="secondary" className="text-xs py-0">
+                    {tag}
+                  </Badge>
+                ))}
+                {article.tags.length > 2 && (
+                  <Badge variant="secondary" className="text-xs py-0">
+                    +{article.tags.length - 2}
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
+        </CardFooter>
       </div>
     </Link>
   );

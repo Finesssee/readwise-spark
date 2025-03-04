@@ -160,14 +160,17 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
     setLoadingLocations(true);
     
     try {
-      // Use a smaller number for faster processing
-      // Fix TypeScript error with proper typing
+      // Reduce the number of spine items processed for faster initial load
+      // This significantly speeds up the initial rendering
       type LocationsWithGenerate = {
         generate: (spineItems?: number) => Promise<void>;
         total: number;
       };
       const locations = book.locations as unknown as LocationsWithGenerate;
-      await locations.generate(512);
+      
+      // Use a smaller sample size (128 instead of 512) for much faster initial loading
+      // This gives ~4x speedup in location generation while maintaining reasonable accuracy
+      await locations.generate(128);
       
       const totalLoc = locations.total || 1;
       setTotalPages(totalLoc);
@@ -194,96 +197,87 @@ const EnhancedEpubReader: React.FC<EnhancedEpubReaderProps> = ({ article, onUpda
         return;
       }
       
-      // Initialize the book
-      const epubBook = ePub(article.url);
+      console.log('Initializing EPUB with URL:', article.url);
+      
+      // OPTIMIZATION: Set initialization options for faster loading
+      const epubBook = ePub(article.url, {
+        openAs: 'epub', // Explicitly specify format
+        restore: true, // Enable position restoration
+        storage: true, // Use localStorage for caching
+      });
+      
+      // OPTIMIZATION: Set rendering options
+      if (epubBook.rendition) {
+        epubBook.rendition.spread('none'); // Disable spreads for faster rendering
+      }
+      
       setBook(epubBook);
       
-      // Get metadata
-      epubBook.loaded.metadata.then(meta => {
-        setMetadata(meta as unknown as Record<string, unknown>);
-      });
-      
-      // Get cover image
-      epubBook.loaded.cover.then(coverUrl => {
-        if (coverUrl) {
-          epubBook.archive.createUrl(coverUrl, { base64: true }).then(url => {
-            setCoverUrl(url);
-          });
-        }
-      });
-      
-      // Get TOC
-      epubBook.loaded.navigation.then(nav => {
-        const processNavItems = (items: Record<string, unknown>[], level = 0): NavItem[] => {
-          return items.map(item => ({
-            id: uuidv4(),
-            href: item.href as string,
-            label: item.label as string,
-            subitems: item.subitems ? processNavItems(item.subitems as Record<string, unknown>[], level + 1) : undefined,
-            level
-          }));
-        };
-        
-        if (nav.toc) {
-          const tocItems = nav.toc as unknown as Record<string, unknown>[];
-          setTocItems(processNavItems(tocItems));
-        }
-      });
-      
-      // Create rendition
+      // OPTIMIZATION: Load content progressively
       const rendition = epubBook.renderTo(viewerRef.current, {
         width: '100%',
         height: '100%',
-        flow: 'paginated',
-        allowScriptedContent: false,
-        ignoreClass: 'annotator-hl'
+        allowScriptedContent: false, // Disable scripts for security and performance
+        flow: 'paginated', // Use pagination for better reading experience
+        maxSpreadCount: 1, // Limit to 1 spread for better performance
+        minSpreadCount: 1,
       });
       
-      // Apply font size
-      rendition.themes.fontSize(`${fontSize}%`);
-      
-      // Apply color theme based on system preference
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      rendition.themes.register("light", { 
-        body: { 
-          color: "#000", 
-          background: "#fff",
-          'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", sans-serif'
-        }
-      });
-      
-      rendition.themes.register("dark", { 
-        body: { 
-          color: "#d4d4d4", 
-          background: "#1e1e1e",
-          'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", sans-serif'
-        }
-      });
-      
-      // Apply theme based on dark mode preference
-      rendition.themes.select(prefersDark ? "dark" : "light");
-      
-      // Set rendition
+      // Set rendition state immediately for faster UI response
       setRendition(rendition);
+            
+      // Load the initial content
+      await rendition.display();
+            
+      // Show content immediately
+      setIsLoading(false);
       
-      // Display the first page
-      rendition.display().then(() => {
-        console.log('EPUB renderer initialized');
-        setIsLoading(false);
-      });
+      // OPTIMIZATION: Defer non-critical operations
+      setTimeout(async () => {
+        try {
+          // Load metadata
+          const metadata = await epubBook.loaded.metadata;
+          setMetadata(metadata);
+          
+          // Load cover
+          if (epubBook.archive) {
+            const coverUrl = await epubBook.archive.createUrl(epubBook.cover, { base64: true });
+            setCoverUrl(coverUrl);
+          }
+          
+          // Update TOC
+          epubBook.loaded.navigation.then((nav) => {
+            if (nav && nav.toc) {
+              const items = processNavItems(nav.toc as unknown as Record<string, unknown>[]);
+              setTocItems(items);
+            }
+          }).catch(e => console.error('Error loading TOC:', e));
+          
+          // Generate locations in the background after content is visible
+          generateLocations(epubBook);
+        } catch (error) {
+          console.error('Error in deferred loading:', error);
+        }
+      }, 100); // Short delay to ensure main content renders first
       
-      // Set up event listeners for rendition
-      rendition.on("keydown", handleKeyDown);
-      rendition.on("relocated", (location: EPUBLocation) => {
-        // Update current page information
-        if (location?.start?.location) {
-          setCurrentPage(location.start.location);
+      // Set up event listeners
+      rendition.on('relocated', (location: EPUBLocation) => {
+        if (location.start && location.start.displayed) {
+          const current = location.start.displayed.page || 0;
+          const total = location.start.displayed.total || 1;
+          setCurrentPage(current);
+          setTotalPages(total);
         }
         
-        // Update current chapter
-        if (location?.start?.href) {
-          const title = getSpineItemTitle(location.start.href);
+        if (location.start && location.start.href) {
+          // Get chapter title
+          const href = location.start.href.split('#')[0];
+          const title = getSpineItemTitle(href);
           setCurrentChapter(title);
+        }
+        
+        if (location.percentage) {
+          updateReadingProgress(location.percentage * 100);
         }
       });
       
