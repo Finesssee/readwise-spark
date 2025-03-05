@@ -11,7 +11,7 @@ export default function Navigation() {
   // Define navigation items
   const navItems = [
     { path: '/', label: 'Home' },
-    { path: '/image-processing-test', label: 'Image Processing Test' },
+    { path: '/image-processing', label: 'Image Processing' },
     // Add more navigation items as routes are implemented
   ];
   

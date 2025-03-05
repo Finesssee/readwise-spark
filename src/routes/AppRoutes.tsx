@@ -7,14 +7,14 @@ import ImageProcessingTest from '../components/ImageProcessingTest';
 // import Settings from '../pages/Settings';
 
 /**
- * Main application routes component
- * Defines all the available routes in the application
+ * Application Routes
+ * Defines all the routes for the application
  */
 export default function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<div className="p-8">Welcome to Readwise Spark</div>} />
-      <Route path="/image-processing-test" element={<ImageProcessingTest />} />
+      <Route path="/image-processing" element={<ImageProcessingTest />} />
       {/* Add other routes as they are implemented */}
       {/* <Route path="/dashboard" element={<Dashboard />} /> */}
       {/* <Route path="/settings" element={<Settings />} /> */}
