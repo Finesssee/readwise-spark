@@ -3,6 +3,23 @@ import { onCLS, onFID, onLCP, onFCP, onTTFB, Metric } from 'web-vitals';
 type MetricName = 'CLS' | 'FID' | 'LCP' | 'FCP' | 'TTFB';
 
 /**
+ * Performance data structure
+ */
+interface PerformanceData {
+  operation: string;
+  startTime: number;
+  endTime: number;
+  duration: number;
+  timestamp: string;
+}
+
+// Store performance data for analysis
+const performanceLog: PerformanceData[] = [];
+
+// Flag to enable/disable performance logging
+const ENABLE_PERF_LOGGING = process.env.NODE_ENV === 'development';
+
+/**
  * Reports vital metrics to your analytics service
  */
 const reportMetric = (metric: Metric) => {
@@ -50,32 +67,80 @@ export const initPerformanceMonitoring = () => {
 /**
  * Custom performance measurement for specific operations
  * Use this to measure resource-intensive operations like document parsing
+ * 
+ * @param operation - Name of the operation being measured
+ * @param fn - Async function to measure
+ * @returns The result of the function
  */
-export const measurePerformance = async <T>(
-  operationName: string,
-  operation: () => Promise<T>
-): Promise<T> => {
+export async function measurePerformance<T>(
+  operation: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  // Start timing
   const startTime = performance.now();
   
   try {
-    const result = await operation();
-    const duration = performance.now() - startTime;
+    // Execute the function
+    const result = await fn();
     
-    console.log(`[Performance] ${operationName} took ${duration.toFixed(2)}ms`);
+    // End timing
+    const endTime = performance.now();
+    const duration = endTime - startTime;
+    
+    // Log performance data
+    logPerformance({
+      operation,
+      startTime,
+      endTime,
+      duration,
+      timestamp: new Date().toISOString(),
+    });
     
     // Report custom metric for important operations
     if (duration > 1000) { // Only report operations taking > 1 second
-      // Just log custom metrics rather than trying to fit them into the web-vitals format
-      console.log(`[Performance] Custom metric - ${operationName}: ${duration.toFixed(2)}ms`);
+      console.log(`[Performance] Custom metric - ${operation}: ${duration.toFixed(2)}ms`);
     }
     
     return result;
   } catch (error) {
-    const duration = performance.now() - startTime;
-    console.error(`[Performance] ${operationName} failed after ${duration.toFixed(2)}ms`, error);
+    // End timing even if there's an error
+    const endTime = performance.now();
+    const duration = endTime - startTime;
+    
+    // Log performance data for the failed operation
+    logPerformance({
+      operation: `${operation} (failed)`,
+      startTime,
+      endTime,
+      duration,
+      timestamp: new Date().toISOString(),
+    });
+    
+    // Re-throw the error
+    console.error(`[Performance] ${operation} failed after ${duration.toFixed(2)}ms`, error);
     throw error;
   }
-};
+}
+
+/**
+ * Log performance data
+ * @param data - Performance data to log
+ */
+function logPerformance(data: PerformanceData): void {
+  // Add to performance log
+  performanceLog.push(data);
+  
+  // Log to console in development
+  if (ENABLE_PERF_LOGGING) {
+    console.log(
+      `[PERFORMANCE] ${data.operation}: ${data.duration.toFixed(2)}ms`,
+      { 
+        duration: data.duration,
+        timestamp: data.timestamp
+      }
+    );
+  }
+}
 
 /**
  * Track component render performance
@@ -90,4 +155,64 @@ export const trackComponentPerformance = (componentName: string) => {
       console.log(`[Performance] ${componentName} rendered in ${duration.toFixed(2)}ms`);
     }
   };
-}; 
+};
+
+/**
+ * Get all performance data
+ * @returns Array of performance data entries
+ */
+export function getPerformanceLog(): PerformanceData[] {
+  return [...performanceLog];
+}
+
+/**
+ * Clear the performance log
+ */
+export function clearPerformanceLog(): void {
+  performanceLog.length = 0;
+}
+
+/**
+ * Calculate performance statistics for a specific operation
+ * @param operation - Name of the operation to analyze
+ * @returns Performance statistics
+ */
+export function getOperationStats(operation: string): {
+  operation: string;
+  count: number;
+  totalDuration: number;
+  averageDuration: number;
+  minDuration: number;
+  maxDuration: number;
+} {
+  const operationData = performanceLog.filter(
+    (entry) => entry.operation === operation
+  );
+  
+  if (operationData.length === 0) {
+    return {
+      operation,
+      count: 0,
+      totalDuration: 0,
+      averageDuration: 0,
+      minDuration: 0,
+      maxDuration: 0,
+    };
+  }
+  
+  const totalDuration = operationData.reduce(
+    (sum, entry) => sum + entry.duration,
+    0
+  );
+  
+  const durations = operationData.map((entry) => entry.duration);
+  
+  return {
+    operation,
+    count: operationData.length,
+    totalDuration,
+    averageDuration: totalDuration / operationData.length,
+    minDuration: Math.min(...durations),
+    maxDuration: Math.max(...durations),
+  };
+} 

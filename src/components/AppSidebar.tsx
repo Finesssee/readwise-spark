@@ -265,6 +265,28 @@ const AppSidebar = () => {
           />
         )}
 
+        {/* Wasm PDF Test Section */}
+        {isCollapsed ? (
+          <div className="flex justify-center py-2">
+            <Link to="/pdf-wasm-test" className={cn(
+              "p-2 rounded-md transition-colors",
+              currentPath === '/pdf-wasm-test' ? "bg-secondary" : "hover:bg-secondary/50"
+            )}>
+              <FileIcon className={cn(
+                "h-5 w-5",
+                currentPath === '/pdf-wasm-test' ? "text-primary" : "text-muted-foreground"
+              )} />
+            </Link>
+          </div>
+        ) : (
+          <SidebarItem
+            icon={<FileIcon className="h-4 w-4" />}
+            label="WebAssembly PDF"
+            to="/pdf-wasm-test"
+            active={currentPath === '/pdf-wasm-test'}
+          />
+        )}
+
         {/* Library Section */}
         {isCollapsed ? (
           <div className="flex justify-center py-2">

@@ -12,6 +12,7 @@ import {
   ContentChunk,
   TocItem
 } from '../types';
+import { processWithWasmPdf, isWasmSupported } from '@/utils/wasmPdfUtils';
 
 /**
  * Worker for PDF content processing
@@ -325,6 +326,28 @@ export class PdfExtractionStage implements ParserStage {
     const startTime = performance.now();
     
     try {
+      // Check if we should use WebAssembly-based processing
+      if (options.useWasm && isWasmSupported()) {
+        console.log('Using WebAssembly-powered PDF processing');
+        
+        // Process with WebAssembly utilities
+        const result = await processWithWasmPdf(file, options);
+        
+        // Merge result with incoming data
+        return {
+          ...data,
+          metadata: result.metadata,
+          chunks: result.chunks,
+          text: result.text,
+          toc: result.toc,
+          format: 'PDF',
+          metrics: result.metrics
+        };
+      }
+      
+      // Fall back to regular processing if WebAssembly is not used or supported
+      console.log('Using standard PDF processing (WebAssembly not enabled or supported)');
+      
       // Update progress
       if (options.onProgress) {
         options.onProgress(5);
